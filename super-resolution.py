@@ -40,16 +40,36 @@ imsize = -1
 factor = 4 # 8
 enforse_div32 = 'CROP' # we usually need the dimensions to be divisible by a power of two (32 in this case)
 PLOT = True
-plot_frequency = 100
+plot_frequency = 1000
 
 # To produce images from the paper we took *_GT.png images from LapSRN viewer for corresponding factor,
 # e.g. x4/zebra_GT.png for factor=4, and x8/zebra_GT.png for factor=8 
 path_to_image = 'data/sr/zebra_GT.png'
 
 # TODO : check and improve this function
-def init_weights(m):
+def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
     if (isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d)):
-        torch.nn.init.uniform_(m.weight.data)
+        if initType == "uniform":
+            torch.nn.init.uniform_(m.weight.data)
+        elif initType == "normal":
+            torch.nn.init.normal_(m.weight.data, mean, std)
+        elif initType == "constant":
+            torch.nn.init.constant_(m.weight.data, constant)
+        elif initType == "dirac":
+            torch.nn.init.dirac_(m.weight.data, constant)
+        elif initType == "xavier_uniform":
+            torch.nn.init.xavier_uniform_(m.weight.data)
+        elif initType == "xavier_normal":
+            torch.nn.init.xavier_normal_(m.weight.data)
+        elif initType == "kaiming_uniform":
+            torch.nn.init.kaiming_uniform_(m.weight.data)
+        elif initType == "kaiming_normal":
+            torch.nn.init.kaiming_normal_(m.weight.data)
+        elif initType == "sparse":
+            torch.nn.init.sparse(m.weight.data)
+        else:
+            raise ("Illegal weight initialization type")
+
         #torch.nn.init.xavier_normal_(m.weight.data)
     #
     '''if type(m) == nn.Linear:
@@ -66,12 +86,13 @@ imgs = load_LR_HR_imgs_sr(path_to_image , imsize, factor, enforse_div32)
 
 imgs['bicubic_np'], imgs['sharp_np'], imgs['nearest_np'] = get_baselines(imgs['LR_pil'], imgs['HR_pil'])
 
+''' ### Osher: removed plot, uncomment this section later
 if PLOT:
     plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], imgs['sharp_np'], imgs['nearest_np']], 4,12);
     print ('PSNR bicubic: %.4f   PSNR nearest: %.4f' %  (
                                         compare_psnr(imgs['HR_np'], imgs['bicubic_np']), 
                                         compare_psnr(imgs['HR_np'], imgs['nearest_np'])))
-
+'''
 
 # # Set up parameters and net
 
@@ -106,7 +127,7 @@ else:
 net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0])).type(dtype).detach()
 net_input = net_input.to(device)
 
-NET_TYPE = 'skip' # UNet, ResNet
+NET_TYPE = 'ResNet' #'skip' # UNet, ResNet
 net = get_net(input_depth, 'skip', pad,
               skip_n33d=128,
               skip_n33u=128,
@@ -114,7 +135,10 @@ net = get_net(input_depth, 'skip', pad,
               num_scales=5,
               upsample_mode='bilinear').type(dtype)
 net = net.to(device)
-net.apply(init_weights)
+
+initType = "xavier_normal"
+weight_init_wrapper = lambda m: init_weights(m, initType)
+net.apply(weight_init_wrapper)
 
 # Losses
 mse = torch.nn.MSELoss().type(dtype)

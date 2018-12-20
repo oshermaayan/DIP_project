@@ -36,6 +36,17 @@ torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark =True
 dtype = torch.cuda.FloatTensor
 
+'''List parameters:
+    factor - 4 or 8
+    reg_noise_std
+    path_to_image
+    weight_init_type :  optional for some initis: mean/std/constant value
+    LR
+    Optimizer
+    NET_TYPE : skip, ResNet, UNet
+
+'''
+
 imsize = -1 
 factor = 4 # 8
 enforse_div32 = 'CROP' # we usually need the dimensions to be divisible by a power of two (32 in this case)
@@ -44,7 +55,7 @@ plot_frequency = 1000
 
 # To produce images from the paper we took *_GT.png images from LapSRN viewer for corresponding factor,
 # e.g. x4/zebra_GT.png for factor=4, and x8/zebra_GT.png for factor=8 
-path_to_image = 'data/sr/zebra_GT.png'
+path_to_image = 'data/sr/eye.jpg'#zebra_GT.png'
 
 # TODO : check and improve this function
 def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
@@ -172,7 +183,7 @@ def closure():
     if tv_weight > 0:
         total_loss += tv_weight * tv_loss(out_HR)
 
-    # Bag propagation
+    # Back propagation
     total_loss.backward()
 
     # Log

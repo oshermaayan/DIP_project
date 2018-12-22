@@ -47,15 +47,33 @@ dtype = torch.cuda.FloatTensor
 
 '''
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--file_path', type=str, help='Full path for image', default='data/sr/zebra_GT.png')
+parser.add_argument('--factor', type=int, help='SR factor (4 or 8)', default=4)
+parser.add_argument('--weight_init', type=str, help='type of weight initializtion, must be one of the following:'\
+                                                   'uniform,normal,constant,dirac,xavier_uniform,xavier_normal,kaiming_uniform,kaiming_normal'
+                                                    , default='kaiming_normal')
+parser.add_argument('--optimizer', type=str, help='Optimizer (e.g. ADAM, SGD...). USE LOWERCASE!', default='adam')
+parser.add_argument('--lr', type=float, help='Learning rate, default is 0.01', default=0.01)
+parser.add_argument('--net_arch', type=str, help='CNN architecture. Currently supports: skip, ResNet,UNet', default='skip')
+parser.add_argument('--network_depth', type=int, help='How many layers the CNN contains (in skip-connections: the number\n'
+                                                       ' of layers is doubled - one for "down" direction and on for "up" directrion'
+                                                       , default=32)
+parser.add_argument('--displ_freq', type=int, help='In how many iterations the results will be displayed', default=1000)
+
+parameters = parser.parse_args()
+
+
+
 imsize = -1 
-factor = 4 # 8
+factor = parameters.factor #4#88
 enforse_div32 = 'CROP' # we usually need the dimensions to be divisible by a power of two (32 in this case)
 PLOT = True
-plot_frequency = 1000
+plot_frequency = parameters.displ_freq #100
 
 # To produce images from the paper we took *_GT.png images from LapSRN viewer for corresponding factor,
 # e.g. x4/zebra_GT.png for factor=4, and x8/zebra_GT.png for factor=8 
-path_to_image = 'data/sr/eye.jpg'#zebra_GT.png'
+path_to_image = parameters.file_path#'data/sr/zebra_GT.png'#zebra_GT.png'
 
 # TODO : check and improve this function
 def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
@@ -89,8 +107,6 @@ def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
     '''
 # # Load image and baselines
 
-# In[2]:
-
 
 # Starts here
 imgs = load_LR_HR_imgs_sr(path_to_image , imsize, factor, enforse_div32)
@@ -110,17 +126,17 @@ if PLOT:
 # In[ ]:
 
 
-input_depth = 32
+input_depth = parameters.network_depth
  
 INPUT =     'noise'
 pad   =     'reflection'
 OPT_OVER =  'net'
 KERNEL_TYPE='lanczos2'
 
-LR = 0.01
+LR = parameters.lr#0.01
 tv_weight = 0.0
 
-OPTIMIZER = 'adam'
+OPTIMIZER = parameters.optimizer#'adam'
 
 if factor == 4: 
     num_iter = 2000
@@ -138,8 +154,8 @@ else:
 net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0])).type(dtype).detach()
 net_input = net_input.to(device)
 
-NET_TYPE = 'ResNet' #'skip' # UNet, ResNet
-net = get_net(input_depth, 'skip', pad,
+NET_TYPE = parameters.net_arch#'ResNet' #'skip' # UNet, ResNet
+net = get_net(input_depth, NET_TYPE, pad,
               skip_n33d=128,
               skip_n33u=128,
               skip_n11=4,
@@ -147,7 +163,7 @@ net = get_net(input_depth, 'skip', pad,
               upsample_mode='bilinear').type(dtype)
 net = net.to(device)
 
-initType = "xavier_normal"
+initType = parameters.weight_init#"xavier_normal"
 weight_init_wrapper = lambda m: init_weights(m, initType)
 net.apply(weight_init_wrapper)
 

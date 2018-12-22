@@ -38,13 +38,16 @@ dtype = torch.cuda.FloatTensor
 
 '''List parameters:
     factor - 4 or 8
-    reg_noise_std
     path_to_image
     weight_init_type :  optional for some initis: mean/std/constant value
     LR
     Optimizer
     NET_TYPE : skip, ResNet, UNet
-
+    
+    ADD:
+    number of interations
+    reg_noise_std
+    optional for some initis: mean/std/constant value
 '''
 
 parser = argparse.ArgumentParser()

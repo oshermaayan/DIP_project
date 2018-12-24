@@ -63,12 +63,13 @@ parser.add_argument('--net_arch', type=str, help='CNN architecture. Currently su
 parser.add_argument('--network_depth', type=int, help='How many layers the CNN contains (in skip-connections: the number\n'
                                                        ' of layers is doubled - one for "down" direction and on for "up" directrion'
                                                        , default=32)
-parser.add_argument('--disp_freq', type=int, help='In how many iterations the results will be displayed', default=1000)
+parser.add_argument('--disp_freq', type=int, help='In how many iterations the results will be displayed', default=100)
 
 parameters = parser.parse_args()
 
 img_name = parameters.file_path.split('/')[-1]
-results_dir = "results/sr/"+img_name+"/"
+results_dir = "results/sr/"+img_name+"/"+parameters.net_arch+"_depth_"+str(parameters.network_depth)+"_init_method_"\
+                + parameters.weight_init+"/"
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
 
@@ -93,7 +94,7 @@ def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
         elif initType == "constant":
             torch.nn.init.constant_(m.weight.data, constant)
         elif initType == "dirac":
-            torch.nn.init.dirac_(m.weight.data, constant)
+            torch.nn.init.dirac_(m.weight.data)
         elif initType == "xavier_uniform":
             torch.nn.init.xavier_uniform_(m.weight.data)
         elif initType == "xavier_normal":
@@ -169,7 +170,7 @@ net = get_net(input_depth, NET_TYPE, pad,
               skip_n11=4,
               num_scales=5,
               upsample_mode='bilinear').type(dtype)
-net = net.to(device)
+###net = net.to(device)
 
 initType = parameters.weight_init#"xavier_normal"
 weight_init_wrapper = lambda m: init_weights(m, initType)
@@ -191,7 +192,7 @@ downsampler = Downsampler(n_planes=3, factor=factor, kernel_type=KERNEL_TYPE, ph
 
 def closure():
     global i, net_input
-    start_time = time.time()
+    ###start_time = time.time()
     if reg_noise_std > 0:
         ### Add noise to network - the bigger the SR factor, the more noise (higher std) is added!
         net_input = net_input_saved + (noise.normal_() * reg_noise_std)
@@ -201,6 +202,7 @@ def closure():
     # Downsample the net's results
     out_LR = downsampler(out_HR)
 
+    # Loss is calculated between the LR versions
     total_loss = mse(out_LR, img_LR_var) 
 
     # Optional - add another regularization to the loss function
@@ -218,16 +220,17 @@ def closure():
     # History
     psnr_history.append([psnr_LR, psnr_HR])
     
-    if PLOT and i % plot_frequency == 0:
-        img_path = results_dir+"iter_"+str(i)+"_"+parameters.net_arch+\
-                   "depth_"+str(parameters.network_depth)+"_"+parameters.weight_init+".jpg"
+    if i % plot_frequency == 0:
+        img_path = results_dir+"iter_"+str(i)+"_CNN_"+parameters.net_arch+\
+                   "_depth_"+str(parameters.network_depth)+"_init_method_"+parameters.weight_init+".jpg"
         torchvision.utils.save_image(out_HR,img_path)
-        out_HR_np = torch_to_np(out_HR)
-        plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], np.clip(out_HR_np, 0, 1)], factor=13, nrow=3)
+        if PLOT:
+            out_HR_np = torch_to_np(out_HR)
+            plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], np.clip(out_HR_np, 0, 1)], factor=13, nrow=3)
 
     i += 1
-    end_time = time.time() #TODO: remove
-    print("Closure function duration is ",(end_time-start_time))
+    ###end_time = time.time() #TODO: remove
+    ###print("Closure function duration is ",(end_time-start_time))
     
     return total_loss
 
@@ -251,7 +254,8 @@ out_HR_np = np.clip(torch_to_np(net(net_input)), 0, 1)
 result_deep_prior = put_in_center(out_HR_np, imgs['orig_np'].shape[1:])
 
 # For the paper we acually took `_bicubic.png` files from LapSRN viewer and used `result_deep_prior` as our result
-plot_image_grid([imgs['HR_np'],
-                 imgs['bicubic_np'],
-                 out_HR_np], factor=4, nrow=1);
+if PLOT:
+    plot_image_grid([imgs['HR_np'],
+                     imgs['bicubic_np'],
+                     out_HR_np], factor=4, nrow=1);
 

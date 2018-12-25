@@ -1,0 +1,8 @@
+#! /bin/sh
+/usr/bin/python3.5 /home/osherm/PycharmProjects/deep-image-prior/super-resolution.py --file_path data/sr/zebra_GT.png --net_arch ResNet --weight_init uniform --lr 0.0025
+/usr/bin/python3.5 /home/osherm/PycharmProjects/deep-image-prior/super-resolution.py --file_path data/sr/zebra_GT.png --net_arch ResNet --weight_init normal --lr 0.0025
+/usr/bin/python3.5 /home/osherm/PycharmProjects/deep-image-prior/super-resolution.py --file_path data/sr/zebra_GT.png --net_arch ResNet --weight_init constant --lr 0.0025
+/usr/bin/python3.5 /home/osherm/PycharmProjects/deep-image-prior/super-resolution.py --file_path data/sr/zebra_GT.png --net_arch ResNet --weight_init xavier_uniform --lr 0.0025
+/usr/bin/python3.5 /home/osherm/PycharmProjects/deep-image-prior/super-resolution.py --file_path data/sr/zebra_GT.png --net_arch ResNet --weight_init xavier_normal --lr 0.0025
+/usr/bin/python3.5 /home/osherm/PycharmProjects/deep-image-prior/super-resolution.py --file_path data/sr/zebra_GT.png --net_arch ResNet --weight_init kaiming_uniform --lr 0.0025
+/usr/bin/python3.5 /home/osherm/PycharmProjects/deep-image-prior/super-resolution.py --file_path data/sr/zebra_GT.png --net_arch ResNet --weight_init kaiming_normal --lr 0.0025

@@ -63,7 +63,11 @@ parser.add_argument('--net_arch', type=str, help='CNN architecture. Currently su
 parser.add_argument('--network_depth', type=int, help='How many layers the CNN contains (in skip-connections: the number\n'
                                                        ' of layers is doubled - one for "down" direction and on for "up" directrion'
                                                        , default=32)
+parser.add_argument('--downsize_net_input', type=bool, help='Should the network input Z be smaller than the image input,'
+                                                            '\n and then upsampled to the image input size', default=False)
 parser.add_argument('--disp_freq', type=int, help='In how many iterations the results will be displayed', default=100)
+parser.add_argument('--noise_type', type=str, help='Distrtibution of CNN input noise: u or n', default='u')
+
 
 parameters = parser.parse_args()
 
@@ -75,9 +79,9 @@ if not os.path.exists(results_dir):
 
 
 imsize = -1 
-factor = parameters.factor #4#88
+factor = parameters.factor #4#8
 enforse_div32 = 'CROP' # we usually need the dimensions to be divisible by a power of two (32 in this case)
-PLOT = True
+PLOT = False
 plot_frequency = parameters.disp_freq #100
 
 # To produce images from the paper we took *_GT.png images from LapSRN viewer for corresponding factor,
@@ -158,10 +162,19 @@ else:
 
 
 # In[ ]:
+noise_type = parameters.noise_type
+net_inputSize_same_as_image = not(parameters.downsize_net_input)
+if net_inputSize_same_as_image:
+    net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0]), noise_type=noise_type).type(dtype).detach()
+else:
+    # Network input is half the size (WORKS ONLY FOR EVEN DIMENSIONS!)
+    net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1] / 2, imgs['HR_pil'].size[0] / 2), noise_type=noise_type).type(
+        dtype).detach()
+    # Upsample so the network input is the same size as the image input
+    net_input = torch.nn.functional.upsample(net_input, scale_factor=2, mode='bilinear').type(dtype)
+    # TODO: From torch 1.0: net_input = torch.nn.functional.interpolate(net_input,scale_factor=2,mode='bilinear')
 
-
-net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0])).type(dtype).detach()
-net_input = net_input.to(device)
+###net_input = net_input.to(device)
 
 NET_TYPE = parameters.net_arch#'ResNet' #'skip' # UNet, ResNet
 net = get_net(input_depth, NET_TYPE, pad,
@@ -221,8 +234,10 @@ def closure():
     psnr_history.append([psnr_LR, psnr_HR])
     
     if i % plot_frequency == 0:
-        img_path = results_dir+"iter_"+str(i)+"_CNN_"+parameters.net_arch+\
-                   "_depth_"+str(parameters.network_depth)+"_init_method_"+parameters.weight_init+".jpg"
+        img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}.jpg".format(
+            iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)\
+                   #+str(i)+"_CNN_"++\
+                   #"_depth_"+str(parameters.network_depth)+"_init_method_"+parameters.weight_init+".jpg"
         torchvision.utils.save_image(out_HR,img_path)
         if PLOT:
             out_HR_np = torch_to_np(out_HR)

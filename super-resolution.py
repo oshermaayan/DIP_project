@@ -66,7 +66,8 @@ parser.add_argument('--network_depth', type=int, help='How many layers the CNN c
 parser.add_argument('--downsize_net_input', type=bool, help='Should the network input Z be smaller than the image input,'
                                                             '\n and then upsampled to the image input size', default=False)
 parser.add_argument('--disp_freq', type=int, help='In how many iterations the results will be displayed', default=100)
-parser.add_argument('--noise_type', type=str, help='Distrtibution of CNN input noise: u or n', default='u')
+parser.add_argument('--input_noise_type', type=str, help='Distrtibution of CNN input noise: u or n', default='u')
+parser.add_argument('--reg_noise_zero', type=bool, help='Should the reg_noise_std be equal to 0', default=False)
 
 
 parameters = parser.parse_args()
@@ -160,9 +161,12 @@ elif factor == 8:
 else:
     assert False, 'We did not experiment with other factors'
 
+if parameters.reg_noise_zero:
+    reg_noise_std = 0.0
+
 
 # In[ ]:
-noise_type = parameters.noise_type
+noise_type = parameters.input_noise_type
 net_inputSize_same_as_image = not(parameters.downsize_net_input)
 if net_inputSize_same_as_image:
     net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0]), noise_type=noise_type).type(dtype).detach()

@@ -48,9 +48,6 @@ fname = 'data/denoising/F16_GT.png'
 
 # # Load image
 
-# In[ ]:
-
-
 if fname == 'data/denoising/snail.jpg':
     img_noisy_pil = crop_image(get_image(fname, imsize)[0], d=32)
     img_noisy_np = pil_to_np(img_noisy_pil)

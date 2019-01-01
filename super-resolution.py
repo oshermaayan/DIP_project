@@ -230,12 +230,16 @@ def closure():
     total_loss.backward()
 
     # Log
+    # imgs['LR_np'] - resized (interpolated), aka corrupted image
+    # imgs['HR_np'] - Original (HR) image
     psnr_LR = compare_psnr(imgs['LR_np'], torch_to_np(out_LR))
     psnr_HR = compare_psnr(imgs['HR_np'], torch_to_np(out_HR))
     print ('Iteration %05d    PSNR_LR %.3f   PSNR_HR %.3f' % (i, psnr_LR, psnr_HR), '\r', end='')
                       
     # History
     psnr_history.append([psnr_LR, psnr_HR])
+
+    # TODO: add checkpoint here if current_psnr - prev_iter_psnr < threshold (check with Tamar and Idan if we want to check this or the case of degrading results
     
     if i % plot_frequency == 0:
         img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}.jpg".format(
@@ -266,15 +270,52 @@ p = get_params(OPT_OVER, net, net_input)
 optimize(OPTIMIZER, p, closure, LR, num_iter)
 
 
-# In[ ]:
+# Display results
 
 
 out_HR_np = np.clip(torch_to_np(net(net_input)), 0, 1)
 result_deep_prior = put_in_center(out_HR_np, imgs['orig_np'].shape[1:])
+iteration_array = np.array(range(1,num_iter+1))
+psnr_history = np.array(psnr_history)
+
+psnr_corrupted = psnr_history[:, 0]
+psnr_hr = psnr_history[:, 1]
+plt.plot(iteration_array, psnr_corrupted,'g')
+plt.plot(iteration_array, psnr_hr,'b')
+plt.show()
+plt_name = results_dir+"psnr_figure"
+plt.savefig(plt_name)
+
+# TODO: add titles, axes, consider two subplots (one for each psnr), consider saving psnr-values arrays
+
+'''
+from numpy import *
+import math
+import matplotlib.pyplot as plt
+
+t = linspace(0, 2*math.pi, 400)
+a = sin(t)
+b = cos(t)
+c = a + b
+
+plt.plot(t, a, 'r') # plotting t, a separately 
+plt.plot(t, b, 'b') # plotting t, b separately 
+plt.plot(t, c, 'g') # plotting t, c separately 
+plt.show()
+
+
+Save figure:
+savefig(fname, dpi=None, facecolor='w', edgecolor='w',
+        orientation='portrait', papertype=None, format=None,
+        transparent=False, bbox_inches=None, pad_inches=0.1,
+        frameon=None, metadata=None)
+
+### https://matplotlib.org/gallery/recipes/create_subplots.html
+'''
 
 # For the paper we acually took `_bicubic.png` files from LapSRN viewer and used `result_deep_prior` as our result
 if PLOT:
     plot_image_grid([imgs['HR_np'],
                      imgs['bicubic_np'],
-                     out_HR_np], factor=4, nrow=1);
+                     out_HR_np], factor=4, nrow=1)
 

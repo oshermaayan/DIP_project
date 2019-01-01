@@ -114,17 +114,33 @@ def get_image(path, imsize=-1):
     return img, img_np
 
 
-
-def fill_noise(x, noise_type):
+def fill_noise(x, noise_type, shape, poiss_k=10, mean=0, std=1):
     """Fills tensor `x` with noise of type `noise_type`."""
     if noise_type == 'u':
         x.uniform_()
     elif noise_type == 'n':
-        x.normal_() 
+        x.normal_(mean=mean, std=std)
+    elif noise_type == 'p':
+        #Poisson distributed
+        poiss_gen = torch.distributions.poisson.Poisson(poiss_k)
+        values = poiss_gen(shape)
+        x = values.detach().clone()
+        # TODO: figure out what to do here
+        # force mean=0.5, var is also 0.5
+        ###x *= 0.5/poiss_k
+        # normalize values to be between -1 and 1
+        min_values, _ = torch.min(x, 2) # 1X3 tensor
+        max_values, _ = torch.max(x, 2)
+        for i in range(3):
+            denom = max_values[i]-min_values[i]
+            x[:,i,:,:] = (1-(-1))*(x[:,i,:,:]-min_values[i])/denom - 1
+
+
     else:
         assert False
 
-def get_noise(input_depth, method, spatial_size, noise_type='u', var=1./10):
+
+def get_noise(input_depth, method, spatial_size, noise_type='u', mean=0, var=1./10):
     """Returns a pytorch.Tensor of size (1 x `input_depth` x `spatial_size[0]` x `spatial_size[1]`) 
     initialized in a specific way.
     Args:
@@ -140,7 +156,7 @@ def get_noise(input_depth, method, spatial_size, noise_type='u', var=1./10):
         shape = [1, input_depth, spatial_size[0], spatial_size[1]]
         net_input = torch.zeros(shape)
         
-        fill_noise(net_input, noise_type)
+        fill_noise(net_input, noise_type, mean=mean, shape=shape)
         net_input *= var            
     elif method == 'meshgrid': 
         assert input_depth == 2

@@ -27,6 +27,7 @@ import torch.optim
 
 from skimage.measure import compare_psnr
 from models.downsampler import Downsampler
+from models.gaussian_filter import GaussianFilter
 
 from utils.sr_utils import *
 
@@ -35,7 +36,8 @@ device = torch.device("cuda:0" if use_cuda else "cpu")
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
-dtype = torch.cuda.FloatTensor#torch.FloatTensor
+#TODO: verify w'ere using cuda!
+dtype = torch.FloatTensor#torch.cuda.FloatTensor#torch.FloatTensor
 
 '''List parameters:
     factor - 4 or 8
@@ -83,6 +85,7 @@ imsize = -1
 factor = parameters.factor #4#8
 enforse_div32 = 'CROP' # we usually need the dimensions to be divisible by a power of two (32 in this case)
 PLOT = False
+PSNR_drop_thresh = 1
 plot_frequency = parameters.disp_freq #100
 
 # To produce images from the paper we took *_GT.png images from LapSRN viewer for corresponding factor,
@@ -153,7 +156,7 @@ tv_weight = 0.0
 OPTIMIZER = parameters.optimizer#'adam'
 
 if factor == 4: 
-    num_iter = 2000
+    num_iter = 5###2000
     reg_noise_std = 0.03
 elif factor == 8:
     num_iter = 4000
@@ -164,19 +167,24 @@ else:
 if parameters.reg_noise_zero:
     reg_noise_std = 0.0
 
-
-# In[ ]:
+# Used to compare normal Z initialization with uniform init
+''' Input (Z) parameters '''
+input_normal_noise_mean = 0.1*0.5
+input_resize_factor = 2
 noise_type = parameters.input_noise_type
 net_inputSize_same_as_image = not(parameters.downsize_net_input)
+
 if net_inputSize_same_as_image:
-    net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0]), noise_type=noise_type).type(dtype).detach()
+    net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0]),
+                          noise_type=noise_type, mean=input_normal_noise_mean).type(dtype).detach()
 else:
     # Network input is half the size (WORKS ONLY FOR EVEN DIMENSIONS!)
-    net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1] / 2, imgs['HR_pil'].size[0] / 2), noise_type=noise_type).type(
+    net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1] / input_resize_factor, imgs['HR_pil'].size[0] / input_resize_factor),
+                          noise_type=noise_type, mean=input_normal_noise_mean).type(
         dtype).detach()
     # Upsample so the network input is the same size as the image input
-    net_input = torch.nn.functional.upsample(net_input, scale_factor=2, mode='bilinear').type(dtype)
-    # TODO: From torch 1.0: net_input = torch.nn.functional.interpolate(net_input,scale_factor=2,mode='bilinear')
+    net_input = torch.nn.functional.upsample(net_input, scale_factor=input_resize_factor, mode='bilinear').type(dtype)
+    # TODO: From torch 1.0: net_input = torch.nn.functional.interpolate(net_input,scale_factor=input_resize_factor,mode='bilinear')
 
 ###net_input = net_input.to(device)
 
@@ -201,6 +209,15 @@ img_LR_var = img_LR_var.to(device)
 
 downsampler = Downsampler(n_planes=3, factor=factor, kernel_type=KERNEL_TYPE, phase=0.5, preserve_size=True).type(dtype)
 
+gaussian_filter = GaussianFilter()
+
+'''
+filtered_tensor = gaussian_filter(np_to_torch(imgs['HR_np'])).type(dtype)
+filtered_np = torch_to_np(filtered_tensor)
+filtered_np = np.swapaxes(filtered_np, 0, 2)
+filtered_np = np.swapaxes(filtered_np, 0, 1)
+plt.imshow(filtered_np)
+'''
 
 # # Define closure and optimize
 
@@ -241,13 +258,24 @@ def closure():
     psnr_history.append([psnr_LR, psnr_HR])
 
     # TODO: add checkpoint here if current_psnr - prev_iter_psnr < threshold (check with Tamar and Idan if we want to check this or the case of degrading results
-    
-    if i % plot_frequency == 0:
+    PSNR_LR_drop_flag = False
+    PSNR_HR_drop_flag = False
+    if i > 1:
+        PSNR_LR_drop_flag = (psnr_LR - psnr_history[i-1][0] > PSNR_drop_thresh)
+        PSNR_HR_drop_flag = (psnr_HR - psnr_history[i-1][1] > PSNR_drop_thresh)
+
+    if (i % plot_frequency == 0) or PSNR_LR_drop_flag or PSNR_HR_drop_flag:
         img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}.jpg".format(
             iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)\
                    #+str(i)+"_CNN_"++\
-                   #"_depth_"+str(parameters.network_depth)+"_init_method_"+parameters.weight_init+".jpg"
-        torchvision.utils.save_image(out_HR,img_path)
+                   #"_depth_"+str(parameters.network_depth)+"_init_method_"+parameters.weight_init
+        if PSNR_LR_drop_flag:
+            img_path = img_path + "_PSNR_drop_LR"
+        if PSNR_HR_drop_flag:
+            img_path + "_PSNR_drop_HR"
+        img_path = img_path + ".jpg"
+        # Save results
+        torchvision.utils.save_image(out_HR, img_path)
         if PLOT:
             out_HR_np = torch_to_np(out_HR)
             plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], np.clip(out_HR_np, 0, 1)], factor=13, nrow=3)
@@ -262,7 +290,7 @@ def closure():
 # In[ ]:
 
 
-psnr_history = [] 
+psnr_history = []
 net_input_saved = net_input.detach().clone()
 noise = net_input.detach().clone()
 
@@ -281,35 +309,20 @@ psnr_history = np.array(psnr_history)
 
 psnr_corrupted = psnr_history[:, 0]
 psnr_hr = psnr_history[:, 1]
-plt.plot(iteration_array, psnr_corrupted,'g')
-plt.plot(iteration_array, psnr_hr,'b')
+plt.plot(iteration_array, psnr_corrupted, 'g')
+plt.plot(iteration_array, psnr_hr, 'b')
+plt.title('PSNR values wrt iteration number')
+plt.xlabel("Iteration")
+plt.ylabel("PSNR value")
+plt.legend(("PSNR compared to upsampled image", "PSNR compared to HR image"),
+           loc='upper right')
 plt.show()
 plt_name = results_dir+"psnr_figure"
 plt.savefig(plt_name)
 
-# TODO: add titles, axes, consider two subplots (one for each psnr), consider saving psnr-values arrays
+# TODO: consider two subplots (one for each psnr), consider saving psnr-values arrays
 
 '''
-from numpy import *
-import math
-import matplotlib.pyplot as plt
-
-t = linspace(0, 2*math.pi, 400)
-a = sin(t)
-b = cos(t)
-c = a + b
-
-plt.plot(t, a, 'r') # plotting t, a separately 
-plt.plot(t, b, 'b') # plotting t, b separately 
-plt.plot(t, c, 'g') # plotting t, c separately 
-plt.show()
-
-
-Save figure:
-savefig(fname, dpi=None, facecolor='w', edgecolor='w',
-        orientation='portrait', papertype=None, format=None,
-        transparent=False, bbox_inches=None, pad_inches=0.1,
-        frameon=None, metadata=None)
 
 ### https://matplotlib.org/gallery/recipes/create_subplots.html
 '''

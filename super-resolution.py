@@ -232,6 +232,7 @@ def closure():
     # Log
     # imgs['LR_np'] - resized (interpolated), aka corrupted image
     # imgs['HR_np'] - Original (HR) image
+    # TODO: validate their PSNR calculation
     psnr_LR = compare_psnr(imgs['LR_np'], torch_to_np(out_LR))
     psnr_HR = compare_psnr(imgs['HR_np'], torch_to_np(out_HR))
     print ('Iteration %05d    PSNR_LR %.3f   PSNR_HR %.3f' % (i, psnr_LR, psnr_HR), '\r', end='')

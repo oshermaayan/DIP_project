@@ -29,6 +29,8 @@ from skimage.measure import compare_psnr
 from models.downsampler import Downsampler
 from models.gaussian_filter import GaussianFilter
 
+import datetime
+
 from utils.sr_utils import *
 
 use_cuda = torch.cuda.is_available()
@@ -74,12 +76,17 @@ parser.add_argument('--reg_noise_zero', type=bool, help='Should the reg_noise_st
 parser.add_argument('--reg_noise_large', type=bool, help='Should the reg_noise_std be multiplied by 10', default=False)
 parser.add_argument('--iter_num', type=int, help='Number of optimization iterations', default=2000)
 
+parser.add_argument('--noise_lr', type=bool, help='Should random noise be added to lr', default=False)
+parser.add_argument('--noise_grad', type=bool, help='Should random noise be added to gradients', default=False)
+parser.add_argument('--noise_weights', type=bool, help='Should random noise be added to weights', default=False)
+
 
 parameters = parser.parse_args()
 
 img_name = parameters.file_path.split('/')[-1]
+timestamp = datetime.datetime.now().strftime("%m-%d-%H:%M:%S")
 results_dir = "results/sr/"+img_name+"/"+parameters.net_arch+"_depth_"+str(parameters.network_depth)+"_init_method_"\
-                + parameters.weight_init+"/"
+                + parameters.weight_init+timestamp+"/"
 #TODO : add datetime to results_dir
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
@@ -302,7 +309,7 @@ noise = net_input.detach().clone()
 i = 0
 num_of_worse_checkpoint = 5
 p = get_params(OPT_OVER, net, net_input)
-optimize(OPTIMIZER, p, closure, LR, num_iter)
+optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr)
 
 
 #Save last result

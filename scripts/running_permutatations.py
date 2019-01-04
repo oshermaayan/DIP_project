@@ -10,7 +10,7 @@ code_base_path = r"/usr/bin/python3.5 /home/osherm/PycharmProjects/deep-image-pr
 for image in images:
 	for wit in weight_init_types:
 		for CNN in CNNs:
-			line = code_base_path + r" --file_path {image} --net_arch {net_arch} --weight_init {weight_init} --reg_noise_zero true --iter_num {iterNum}".format(image=image, net_arch=CNN, weight_init=wit, iterNum=4000)
+			line = code_base_path + r" --file_path {image} --net_arch {net_arch} --weight_init {weight_init} --reg_noise_large true --iter_num {iterNum}".format(image=image, net_arch=CNN, weight_init=wit, iterNum=4000)
 			print(line)
 	
 

@@ -211,7 +211,7 @@ def torch_to_np(img_var):
     return img_var.detach().cpu().numpy()[0]
 
 
-def optimize(optimizer_type, parameters, closure, LR, num_iter):
+def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised, lrChangeRate=100):
     """Runs optimization loop.
 
     Args:
@@ -223,7 +223,7 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter):
     """
     if optimizer_type == 'LBFGS':
         # Do several steps with adam first
-        optimizer = torch.optim.Adam(parameters, lr=0.001)
+        optimizer = torch.optim.Adam(parameters, lr=LR) #lr=0.001)
         for j in range(100):
             optimizer.zero_grad()
             closure()
@@ -239,10 +239,26 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter):
     elif optimizer_type == 'adam':
         print('Starting optimization with ADAM')
         optimizer = torch.optim.Adam(parameters, lr=LR)
-        
+
+        noise_sampler = torch.distributions.normal.Normal(0.0,LR/10.0)
         for j in range(num_iter):
             optimizer.zero_grad()
             closure()
             optimizer.step()
+
+            if isLRNoised:
+                # Add noise to learning rate
+                if j % (lrChangeRate -1) == 0:
+                    lrAddition = noise_sampler.sample()
+                    if (LR + lrAddition > 0):
+                        newLr = LR + lrAddition
+                        adjust_learning_rate(optimizer, newLr)
     else:
         assert False
+
+
+def adjust_learning_rate(optimizer, newLr):
+    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    lr = newLr
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr.item() # converted to float

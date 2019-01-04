@@ -37,7 +37,7 @@ device = torch.device("cuda:0" if use_cuda else "cpu")
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
 #TODO: verify w'ere using cuda!
-dtype = torch.FloatTensor#torch.cuda.FloatTensor#torch.FloatTensor
+dtype = torch.cuda.FloatTensor#torch.FloatTensor
 
 '''List parameters:
     factor - 4 or 8
@@ -69,7 +69,10 @@ parser.add_argument('--downsize_net_input', type=bool, help='Should the network 
                                                             '\n and then upsampled to the image input size', default=False)
 parser.add_argument('--disp_freq', type=int, help='In how many iterations the results will be displayed', default=100)
 parser.add_argument('--input_noise_type', type=str, help='Distrtibution of CNN input noise: u or n', default='u')
+parser.add_argument('--input_resize_factor', type=int, help='Factor of Z downsampling', default=2)
 parser.add_argument('--reg_noise_zero', type=bool, help='Should the reg_noise_std be equal to 0', default=False)
+parser.add_argument('--reg_noise_large', type=bool, help='Should the reg_noise_std be multiplied by 10', default=False)
+parser.add_argument('--iter_num', type=int, help='Number of optimization iterations', default=2000)
 
 
 parameters = parser.parse_args()
@@ -77,6 +80,7 @@ parameters = parser.parse_args()
 img_name = parameters.file_path.split('/')[-1]
 results_dir = "results/sr/"+img_name+"/"+parameters.net_arch+"_depth_"+str(parameters.network_depth)+"_init_method_"\
                 + parameters.weight_init+"/"
+#TODO : add datetime to results_dir
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
 
@@ -110,8 +114,10 @@ def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
         elif initType == "kaiming_uniform":
             torch.nn.init.kaiming_uniform_(m.weight.data)
         elif initType == "kaiming_normal":
+            # Probably the default init
             torch.nn.init.kaiming_normal_(m.weight.data)
         elif initType == "sparse":
+            # Not really supported
             torch.nn.init.sparse(m.weight.data)
         else:
             raise ("Illegal weight initialization type")
@@ -140,8 +146,6 @@ if PLOT:
 
 # # Set up parameters and net
 
-# In[ ]:
-
 
 input_depth = parameters.network_depth
  
@@ -156,7 +160,7 @@ tv_weight = 0.0
 OPTIMIZER = parameters.optimizer#'adam'
 
 if factor == 4: 
-    num_iter = 5###2000
+    num_iter = 2000
     reg_noise_std = 0.03
 elif factor == 8:
     num_iter = 4000
@@ -164,13 +168,19 @@ elif factor == 8:
 else:
     assert False, 'We did not experiment with other factors'
 
+if parameters.iter_num != num_iter:
+    num_iter = parameters.iter_num
+
 if parameters.reg_noise_zero:
     reg_noise_std = 0.0
 
+if parameters.reg_noise_large:
+    reg_noise_std *= 10
+
 # Used to compare normal Z initialization with uniform init
 ''' Input (Z) parameters '''
-input_normal_noise_mean = 0.1*0.5
-input_resize_factor = 2
+input_normal_noise_mean = 0.5
+input_resize_factor = parameters.input_resize_factor
 noise_type = parameters.input_noise_type
 net_inputSize_same_as_image = not(parameters.downsize_net_input)
 
@@ -261,14 +271,12 @@ def closure():
     PSNR_LR_drop_flag = False
     PSNR_HR_drop_flag = False
     if i > 1:
-        PSNR_LR_drop_flag = (psnr_LR - psnr_history[i-1][0] > PSNR_drop_thresh)
-        PSNR_HR_drop_flag = (psnr_HR - psnr_history[i-1][1] > PSNR_drop_thresh)
+        PSNR_LR_drop_flag = (psnr_history[i-1][0] - psnr_LR > PSNR_drop_thresh)
+        PSNR_HR_drop_flag = (psnr_history[i-1][1] - psnr_HR > PSNR_drop_thresh)
 
     if (i % plot_frequency == 0) or PSNR_LR_drop_flag or PSNR_HR_drop_flag:
-        img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}.jpg".format(
-            iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)\
-                   #+str(i)+"_CNN_"++\
-                   #"_depth_"+str(parameters.network_depth)+"_init_method_"+parameters.weight_init
+        img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}".format(
+            iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
         if PSNR_LR_drop_flag:
             img_path = img_path + "_PSNR_drop_LR"
         if PSNR_HR_drop_flag:
@@ -281,13 +289,10 @@ def closure():
             plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], np.clip(out_HR_np, 0, 1)], factor=13, nrow=3)
 
     i += 1
-    ###end_time = time.time() #TODO: remove
-    ###print("Closure function duration is ",(end_time-start_time))
     
     return total_loss
 
 
-# In[ ]:
 
 
 psnr_history = []
@@ -295,32 +300,50 @@ net_input_saved = net_input.detach().clone()
 noise = net_input.detach().clone()
 
 i = 0
+num_of_worse_checkpoint = 5
 p = get_params(OPT_OVER, net, net_input)
 optimize(OPTIMIZER, p, closure, LR, num_iter)
 
 
+#Save last result
+img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}_final.jpg".format(
+            iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
+torchvision.utils.save_image(net(net_input), img_path)
+
 # Display results
 
-
+# TODO: consider moving this to a function
 out_HR_np = np.clip(torch_to_np(net(net_input)), 0, 1)
 result_deep_prior = put_in_center(out_HR_np, imgs['orig_np'].shape[1:])
+
+
 iteration_array = np.array(range(1,num_iter+1))
 psnr_history = np.array(psnr_history)
 
 psnr_corrupted = psnr_history[:, 0]
 psnr_hr = psnr_history[:, 1]
+
+max_psnr_corroupted = "{0:.4f}".format(np.max(psnr_corrupted))
+max_psnr_hr = "{0:.4f}".format(max(psnr_hr))
+psnr_txt_file = results_dir + "psnr_val_{corruptedPsnr}_{HR_Psnr}.txt".format(
+    corruptedPsnr= max_psnr_corroupted, HR_Psnr=max_psnr_hr)
+with open(psnr_txt_file, "w") as log:
+    log.write("Corrupted max PSNR: " + max_psnr_corroupted+"\n")
+    log.write("HR max PSNR: " + max_psnr_hr)
+
 plt.plot(iteration_array, psnr_corrupted, 'g')
 plt.plot(iteration_array, psnr_hr, 'b')
 plt.title('PSNR values wrt iteration number')
 plt.xlabel("Iteration")
 plt.ylabel("PSNR value")
 plt.legend(("PSNR compared to upsampled image", "PSNR compared to HR image"),
-           loc='upper right')
-plt.show()
-plt_name = results_dir+"psnr_figure"
+           loc='best')
+#plt.show()
+plt_name = results_dir+"psnr_figure.png"
 plt.savefig(plt_name)
 
 # TODO: consider two subplots (one for each psnr), consider saving psnr-values arrays
+
 
 '''
 

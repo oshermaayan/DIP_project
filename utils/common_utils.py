@@ -148,7 +148,7 @@ def get_noise(input_depth, method, spatial_size, noise_type='u', mean=0, var=1./
         method: `noise` for fillting tensor with noise; `meshgrid` for np.meshgrid
         spatial_size: spatial size of the tensor to initialize
         noise_type: 'u' for uniform; 'n' for normal
-        var: a factor, a noise will be multiplicated by. Basically it is standard deviation scaler. 
+        var: a factor, a noise will be multiplied by. Basically it is standard deviation scaler.
     """
     if isinstance(spatial_size, int):
         spatial_size = (spatial_size, spatial_size)
@@ -211,7 +211,7 @@ def torch_to_np(img_var):
     return img_var.detach().cpu().numpy()[0]
 
 
-def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised, lrChangeRate=100):
+def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised=False, noiseGradients=False, lrChangeRate=100):
     """Runs optimization loop.
 
     Args:
@@ -240,12 +240,19 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised, lrCh
         print('Starting optimization with ADAM')
         optimizer = torch.optim.Adam(parameters, lr=LR)
 
-        noise_sampler = torch.distributions.normal.Normal(0.0,LR/10.0)
+
         for j in range(num_iter):
             optimizer.zero_grad()
             closure()
+
+            if noiseGradients:
+                if j % (lrChangeRate - 1) == 0:
+                    for p in parameters:
+                        p.grad += torch.distributions.normal.Normal(0.0, 1. / 100.0).sample()
+
             optimizer.step()
 
+            noise_sampler = torch.distributions.normal.Normal(0.0, LR / 10.0)
             if isLRNoised:
                 # Add noise to learning rate
                 if j % (lrChangeRate -1) == 0:

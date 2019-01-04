@@ -84,7 +84,7 @@ parser.add_argument('--noise_weights', type=bool, help='Should random noise be a
 parameters = parser.parse_args()
 
 img_name = parameters.file_path.split('/')[-1]
-timestamp = datetime.datetime.now().strftime("%m-%d-%H:%M:%S")
+timestamp = datetime.datetime.now().strftime("%m-%d-%H-%M-%S")
 results_dir = "results/sr/"+img_name+"/"+parameters.net_arch+"_depth_"+str(parameters.network_depth)+"_init_method_"\
                 + parameters.weight_init+timestamp+"/"
 #TODO : add datetime to results_dir
@@ -129,7 +129,11 @@ def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
         else:
             raise ("Illegal weight initialization type")
 
-        #torch.nn.init.xavier_normal_(m.weight.data)
+def add_noise_to_weights(m):
+    if (isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d)):
+        noise_sampler = torch.distributions.normal.Normal(0.0, 10e-4)
+        m.weight.data += noise_sampler.sample(m.weight.data.shape).type(dtype)
+
     #
     '''if type(m) == nn.Linear:
         m.weight.data.fill_(1.0)
@@ -281,6 +285,12 @@ def closure():
         PSNR_LR_drop_flag = (psnr_history[i-1][0] - psnr_LR > PSNR_drop_thresh)
         PSNR_HR_drop_flag = (psnr_history[i-1][1] - psnr_HR > PSNR_drop_thresh)
 
+
+    if (i % plot_frequency == 0):
+        # Add noise to net weights, if needed
+        if parameters.noise_weights:
+            net.apply(add_noise_to_weights)
+
     if (i % plot_frequency == 0) or PSNR_LR_drop_flag or PSNR_HR_drop_flag:
         img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}".format(
             iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
@@ -291,6 +301,7 @@ def closure():
         img_path = img_path + ".jpg"
         # Save results
         torchvision.utils.save_image(out_HR, img_path)
+
         if PLOT:
             out_HR_np = torch_to_np(out_HR)
             plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], np.clip(out_HR_np, 0, 1)], factor=13, nrow=3)
@@ -309,7 +320,7 @@ noise = net_input.detach().clone()
 i = 0
 num_of_worse_checkpoint = 5
 p = get_params(OPT_OVER, net, net_input)
-optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr)
+optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr, noiseGradients=parameters.noise_grad)
 
 
 #Save last result

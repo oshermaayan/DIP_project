@@ -248,7 +248,7 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised=False
             if noiseGradients:
                 if j % (lrChangeRate - 1) == 0:
                     for p in parameters:
-                        p.grad += torch.distributions.normal.Normal(0.0, 1. / 100.0).sample()
+                        p.grad += torch.distributions.normal.Normal(0.0, 1. / 100.0).sample().type(torch.cuda.FloatTensor)
 
             optimizer.step()
 
@@ -256,7 +256,7 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised=False
             if isLRNoised:
                 # Add noise to learning rate
                 if j % (lrChangeRate -1) == 0:
-                    lrAddition = noise_sampler.sample()
+                    lrAddition = noise_sampler.sample().type(torch.cuda.FloatTensor)
                     if (LR + lrAddition > 0):
                         newLr = LR + lrAddition
                         adjust_learning_rate(optimizer, newLr)

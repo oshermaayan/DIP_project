@@ -42,7 +42,8 @@ def get_block(num_channels, norm_layer, act_fun):
 
 
 class ResNet(nn.Module):
-    def __init__(self, num_input_channels, num_output_channels, num_blocks, num_channels, need_residual=True, act_fun='LeakyReLU', need_sigmoid=True, norm_layer=nn.BatchNorm2d, pad='reflection'):
+    def __init__(self, num_input_channels, num_output_channels, num_blocks, num_channels, need_residual=True,
+                 act_fun='LeakyReLU', need_sigmoid=True, norm_layer=nn.BatchNorm2d, pad='reflection'):
         '''
             pad = 'start|zero|replication'
         '''

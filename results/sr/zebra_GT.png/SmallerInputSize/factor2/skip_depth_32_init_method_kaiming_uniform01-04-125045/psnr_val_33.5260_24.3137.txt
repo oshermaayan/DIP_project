@@ -1,0 +1,2 @@
+Corrupted max PSNR: 33.5260
+HR max PSNR: 24.3137

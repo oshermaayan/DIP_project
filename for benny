@@ -1,0 +1,3 @@
+--file_path data/sr/zebra_GT.png --net_arch skip --weight_init kaiming_uniform --noise_lr True
+--file_path data/sr/zebra_GT.png --net_arch skip --weight_init kaiming_uniform --noise_grad True
+--file_path data/sr/zebra_GT.png --net_arch skip --weight_init kaiming_uniform --noise_weights True

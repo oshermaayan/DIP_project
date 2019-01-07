@@ -123,7 +123,7 @@ def fill_noise(x, noise_type, shape, poiss_k=10, mean=0, std=1):
     elif noise_type == 'p':
         #Poisson distributed
         poiss_gen = torch.distributions.poisson.Poisson(poiss_k)
-        values = poiss_gen.sample(x.shape)
+        values = poiss_gen.sample(shape)
         x.data = values.detach().clone()
 
 

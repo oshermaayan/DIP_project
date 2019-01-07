@@ -123,17 +123,8 @@ def fill_noise(x, noise_type, shape, poiss_k=10, mean=0, std=1):
     elif noise_type == 'p':
         #Poisson distributed
         poiss_gen = torch.distributions.poisson.Poisson(poiss_k)
-        values = poiss_gen(shape)
-        x = values.detach().clone()
-        # TODO: figure out what to do here
-        # force mean=0.5, var is also 0.5
-        ###x *= 0.5/poiss_k
-        # normalize values to be between -1 and 1
-        min_values, _ = torch.min(x, 2) # 1X3 tensor
-        max_values, _ = torch.max(x, 2)
-        for i in range(3):
-            denom = max_values[i]-min_values[i]
-            x[:,i,:,:] = (1-(-1))*(x[:,i,:,:]-min_values[i])/denom - 1
+        values = poiss_gen.sample(shape)
+        x.data = values.detach().clone()
 
 
     else:

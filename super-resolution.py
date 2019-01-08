@@ -30,6 +30,8 @@ from models.downsampler import Downsampler
 from models.gaussian_filter import GaussianFilter
 
 import datetime
+import pickle
+import csv
 
 from utils.sr_utils import *
 
@@ -230,7 +232,7 @@ img_LR_var = img_LR_var.to(device)
 
 downsampler = Downsampler(n_planes=3, factor=factor, kernel_type=KERNEL_TYPE, phase=0.5, preserve_size=True).type(dtype)
 
-gaussian_filter = GaussianFilter()
+#gaussian_filter = GaussianFilter()
 
 '''
 filtered_tensor = gaussian_filter(np_to_torch(imgs['HR_np'])).type(dtype)
@@ -345,9 +347,33 @@ max_psnr_corroupted = "{0:.4f}".format(np.max(psnr_corrupted))
 max_psnr_hr = "{0:.4f}".format(max(psnr_hr))
 psnr_txt_file = results_dir + "psnr_val_{corruptedPsnr}_{HR_Psnr}.txt".format(
     corruptedPsnr= max_psnr_corroupted, HR_Psnr=max_psnr_hr)
+
 with open(psnr_txt_file, "w") as log:
     log.write("Corrupted max PSNR: " + max_psnr_corroupted+"\n")
     log.write("HR max PSNR: " + max_psnr_hr)
+
+
+#TODO: consider adding more details in name
+#TODO: move this into a function
+psnr_hr_values_file = results_dir + "psnr_vals"
+if parameters.noise_weights:
+    psnr_hr_values_file += "+noisedWeights"
+
+if parameters.noise_grad:
+    psnr_hr_values_file += "_noisedGrad"
+
+if parameters.noise_lr:
+    psnr_hr_values_file += "_noisedLr"
+
+psnr_hr_values_pickle = psnr_hr_values_file+".pickle"
+psnr_hr_values_csv = psnr_hr_values_file+".csv"
+
+with open(psnr_hr_values_pickle, "wb") as psnr_pickle:
+    pickle.dump(psnr_hr, psnr_pickle)
+
+with open(psnr_hr_values_csv, "w") as psnr_csv:
+    wr = csv.writer(psnr_csv, dialect='excel')
+    wr.writerows(map(lambda x: [x], psnr_hr))
 
 plt.plot(iteration_array, psnr_corrupted, 'g')
 plt.plot(iteration_array, psnr_hr, 'b')

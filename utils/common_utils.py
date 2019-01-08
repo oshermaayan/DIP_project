@@ -319,13 +319,14 @@ def plot_psnr(iteration_array, psnr_corrupted, psnr_hr, results_dir):
 
     # TODO: consider two subplots (one for each psnr), consider saving psnr-values arrays
 
-def plot_psnr_values(x_axis, data, results_dir):
+def plot_psnr_values(x_axis, data, dir):
     for array in data:
         plt.plot(x_axis, array)
     plt.title("PSNR values (from different runs) wrt iterations")
     plt.xlabel("Iteration #")
     plt.ylabel("PSNR value")
-    plt.show() #Remove later
-    plt_name = results_dir + "psnr_figure.png"
+    #plt.show() #Remove later
+    plt_name = dir + "psnr_figure.png"
     plt.savefig(plt_name)
-    #plt.close()
+    plt.close()
+

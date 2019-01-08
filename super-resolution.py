@@ -43,20 +43,6 @@ torch.backends.cudnn.benchmark = True
 #TODO: verify w'ere using cuda!
 dtype = torch.cuda.FloatTensor#torch.FloatTensor
 
-'''List parameters:
-    factor - 4 or 8
-    path_to_image
-    weight_init_type :  optional for some initis: mean/std/constant value
-    LR
-    Optimizer
-    NET_TYPE : skip, ResNet, UNet
-    
-    ADD:
-    number of interations
-    reg_noise_std
-    optional for some initis: mean/std/constant value
-'''
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--file_path', type=str, help='Full path for image', default='data/sr/zebra_GT.png')
 parser.add_argument('--factor', type=int, help='SR factor (4 or 8)', default=4)
@@ -81,17 +67,17 @@ parser.add_argument('--iter_num', type=int, help='Number of optimization iterati
 parser.add_argument('--noise_lr', type=bool, help='Should random noise be added to lr', default=False)
 parser.add_argument('--noise_grad', type=bool, help='Should random noise be added to gradients', default=False)
 parser.add_argument('--noise_weights', type=bool, help='Should random noise be added to weights', default=False)
-
+parser.add_argument('--simulationName', type=str, help='Simulation name (e.g. weights_init, noise_grad...)', default="defaultDir")
 
 parameters = parser.parse_args()
 
 img_name = parameters.file_path.split('/')[-1]
 timestamp = datetime.datetime.now().strftime("%m-%d-%H-%M-%S")
-results_dir = "results/sr/"+img_name+"/"+parameters.net_arch+"_depth_"+str(parameters.network_depth)+"_init_method_"\
-                + parameters.weight_init+timestamp+"/"
-#TODO : add datetime to results_dir
-if not os.path.exists(results_dir):
-    os.makedirs(results_dir)
+
+
+baseDir = "results/sr/{img_name}/{simName}/".format(img_name=img_name,simName=parameters.simulationName)
+if not os.path.exists(baseDir):
+    os.makedirs(baseDir)
 
 
 imsize = -1 
@@ -144,7 +130,8 @@ def add_noise_to_weights(m):
     '''
 # # Load image and baselines
 
-def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg_noise_std, LR, num_iter, KERNEL_TYPE):
+def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg_noise_std, LR, num_iter,
+                 KERNEL_TYPE, results_dir):
     initType = parameters.weight_init#"xavier_normal"
     weight_init_wrapper = lambda m: init_weights(m, initType)
     net.apply(weight_init_wrapper)
@@ -345,12 +332,6 @@ def main():
         # TODO: From torch 1.0: net_input = torch.nn.functional.interpolate(net_input,scale_factor=input_resize_factor,mode='bilinear')
 
     NET_TYPE = parameters.net_arch  # 'ResNet' #'skip' # UNet, ResNet
-    net = get_net(input_depth, NET_TYPE, pad,
-                  skip_n33d=128,
-                  skip_n33u=128,
-                  skip_n11=4,
-                  num_scales=5,
-                  upsample_mode='bilinear').type(dtype)
 
     # Initialize data structures to contain the results
     all_psnr_results = np.zeros((tests_num, num_iter))
@@ -358,11 +339,27 @@ def main():
     # Especially: what layer-related statisics (e.g. std
 
 
+    startTime = time.time()
     # Magic happens here
     for j in range(tests_num):
-        #TODO: maybe net assignment should be INSIDE the for loop?
-        psnr_values = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR, num_iter,
-                     KERNEL_TYPE)
+        # results_dir is for results from a SPECIFIC simulation (specific paramters - net arch, lr, etc.)
+        results_dir = "{baseDir}{netArch}_depth_{netDepth}_Init_{initMethod}_{currentSimNum}/".format(
+            baseDir=baseDir,netArch=parameters.net_arch, netDepth=str(parameters.network_depth),
+            initMethod=parameters.weight_init, currentSimNum=str(j+1)
+        )
+        if not os.path.exists(results_dir):
+            os.makedirs(results_dir)
+
+        net = get_net(input_depth, NET_TYPE, pad,
+                      skip_n33d=128,
+                      skip_n33u=128,
+                      skip_n11=4,
+                      num_scales=5,
+                      upsample_mode='bilinear').type(dtype)
+
+
+        psnr_values = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR,
+                    num_iter, KERNEL_TYPE, results_dir)
 
         all_psnr_results[j, :] = psnr_values
         # Reset global variables
@@ -370,13 +367,28 @@ def main():
 
         print("Completed run #{runNum} out of {totalRunNum}".format(runNum = j +1, totalRunNum=tests_num))
 
+    endTime = time.time()
+    duration = endTime- startTime
+    print("Total time for {expNum} experiments with {iterNum} iterations:{time}"
+          "\nAverage time per simulation:{avgTime}".format(
+        expNum=tests_num, iterNum=num_iter,time=duration, avgTime=duration/tests_num))
+
     x_axis = np.array(range(1, num_iter + 1))
-    plot_psnr_values(x_axis, all_psnr_results, results_dir)
+    plot_psnr_values(x_axis, all_psnr_results, baseDir)
+
+    all_psnr_csv = baseDir + "all_psnr.csv"
+    with open(all_psnr_csv, "w") as csvFile:
+        # Each row is a different simulation
+        wr = csv.writer(csvFile, dialect='excel')
+        wr.writerows(all_psnr_results.tolist())
+
+
 
 
 '''
 Define global variables and run main
 '''
+
 i = 0
 tests_num = 10
 main()

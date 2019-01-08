@@ -9,6 +9,8 @@ import PIL
 import numpy as np
 
 import matplotlib.pyplot as plt
+import pickle
+import csv
 
 def crop_image(img, d=32):
     '''Make dimensions divisible by `d`'''
@@ -238,8 +240,15 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised=False
 
             if noiseGradients:
                 if j % (lrChangeRate - 1) == 0:
+                    # Use max gradient absoulte size as std
+                    max_grad = 0
                     for p in parameters:
-                        p.grad += torch.distributions.normal.Normal(0.0, 1. / 100.0).sample().type(torch.cuda.FloatTensor)
+                        if abs(p.grad) > max_grad:
+                            max_grad = abs(p.grad)
+
+                    #Add noise to gradients
+                    for p in parameters:
+                        p.grad += torch.distributions.normal.Normal(0.0, max_grad / 100.0).sample().type(torch.cuda.FloatTensor)
 
             optimizer.step()
 
@@ -260,3 +269,63 @@ def adjust_learning_rate(optimizer, newLr):
     lr = newLr
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr.item() # converted to float
+
+def save_psnr_pickle_and_csv(results_dir, results, parameters):
+    # TODO: consider adding more details in name
+    # TODO: move this into a function
+    psnr_hr_values_file = results_dir + "psnr_vals"
+    if parameters.noise_weights:
+        psnr_hr_values_file += "+noisedWeights"
+
+    if parameters.noise_grad:
+        psnr_hr_values_file += "_noisedGrad"
+
+    if parameters.noise_lr:
+        psnr_hr_values_file += "_noisedLr"
+
+    psnr_hr_values_pickle = psnr_hr_values_file + ".pickle"
+    psnr_hr_values_csv = psnr_hr_values_file + ".csv"
+
+    # Save both to pickle and to csv files
+    with open(psnr_hr_values_pickle, "wb") as pickleFile:
+        pickle.dump(results, pickleFile)
+
+    with open(psnr_hr_values_csv, "w") as csvFile:
+        wr = csv.writer(csvFile, dialect='excel')
+        wr.writerows(map(lambda x: [x], results))
+
+def write_max_psnr_vals(results_dir, psnr_corrupted, psnr_hr):
+    max_psnr_corroupted = "{0:.4f}".format(np.max(psnr_corrupted))
+    max_psnr_hr = "{0:.4f}".format(max(psnr_hr))
+    psnr_txt_file = results_dir + "psnr_val_{corruptedPsnr}_{HR_Psnr}.txt".format(
+        corruptedPsnr=max_psnr_corroupted, HR_Psnr=max_psnr_hr)
+
+    with open(psnr_txt_file, "w") as log:
+        log.write("Corrupted max PSNR: " + max_psnr_corroupted + "\n")
+        log.write("HR max PSNR: " + max_psnr_hr)
+
+def plot_psnr(iteration_array, psnr_corrupted, psnr_hr, results_dir):
+    plt.plot(iteration_array, psnr_corrupted, 'g')
+    plt.plot(iteration_array, psnr_hr, 'b')
+    plt.title('PSNR values wrt iteration number')
+    plt.xlabel("Iteration")
+    plt.ylabel("PSNR value")
+    plt.legend(("PSNR compared to upsampled image", "PSNR compared to HR image"),
+               loc='best')
+    # plt.show()
+    plt_name = results_dir + "psnr_figure.png"
+    plt.savefig(plt_name)
+    plt.close()
+
+    # TODO: consider two subplots (one for each psnr), consider saving psnr-values arrays
+
+def plot_psnr_values(x_axis, data, results_dir):
+    for array in data:
+        plt.plot(x_axis, array)
+    plt.title("PSNR values (from different runs) wrt iterations")
+    plt.xlabel("Iteration #")
+    plt.ylabel("PSNR value")
+    plt.show() #Remove later
+    plt_name = results_dir + "psnr_figure.png"
+    plt.savefig(plt_name)
+    #plt.close()

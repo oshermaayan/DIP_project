@@ -133,7 +133,8 @@ def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
 
 def add_noise_to_weights(m):
     if (isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d)):
-        noise_sampler = torch.distributions.normal.Normal(0.0, 10e-4)
+        max_layer_weight = float(torch.max(m.weight.data))
+        noise_sampler = torch.distributions.normal.Normal(0.0, max_layer_weight/100.0)
         m.weight.data += noise_sampler.sample(m.weight.data.shape).type(dtype)
 
     #
@@ -143,260 +144,242 @@ def add_noise_to_weights(m):
     '''
 # # Load image and baselines
 
+def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg_noise_std, LR, num_iter, KERNEL_TYPE):
+    initType = parameters.weight_init#"xavier_normal"
+    weight_init_wrapper = lambda m: init_weights(m, initType)
+    net.apply(weight_init_wrapper)
 
-# Starts here
-imgs = load_LR_HR_imgs_sr(path_to_image , imsize, factor, enforse_div32)
+    # Losses
+    mse = torch.nn.MSELoss().type(dtype)
 
-imgs['bicubic_np'], imgs['sharp_np'], imgs['nearest_np'] = get_baselines(imgs['LR_pil'], imgs['HR_pil'])
+    img_LR_var = np_to_torch(imgs['LR_np']).type(dtype)
+    img_LR_var = img_LR_var.to(device)
 
-''' ### Osher: removed plot, uncomment this section later
-if PLOT:
-    plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], imgs['sharp_np'], imgs['nearest_np']], 4,12);
-    print ('PSNR bicubic: %.4f   PSNR nearest: %.4f' %  (
-                                        compare_psnr(imgs['HR_np'], imgs['bicubic_np']), 
-                                        compare_psnr(imgs['HR_np'], imgs['nearest_np'])))
+    downsampler = Downsampler(n_planes=3, factor=factor, kernel_type=KERNEL_TYPE, phase=0.5, preserve_size=True).type(dtype)
+
+    #gaussian_filter = GaussianFilter()
+
+    '''
+    filtered_tensor = gaussian_filter(np_to_torch(imgs['HR_np'])).type(dtype)
+    filtered_np = torch_to_np(filtered_tensor)
+    filtered_np = np.swapaxes(filtered_np, 0, 2)
+    filtered_np = np.swapaxes(filtered_np, 0, 1)
+    plt.imshow(filtered_np)
+    '''
+
+    # # Define closure and optimize
+
+    # In[ ]:
+
+
+    def closure():
+        global i, net_input
+        ###start_time = time.time()
+        if reg_noise_std > 0:
+            ### Add noise to network - the bigger the SR factor, the more noise (higher std) is added!
+            net_input = net_input_saved + (noise.normal_() * reg_noise_std)
+
+        # SR image
+        out_HR = net(net_input)
+        # Downsample the net's results
+        out_LR = downsampler(out_HR)
+
+        # Loss is calculated between the LR versions
+        total_loss = mse(out_LR, img_LR_var)
+
+        # Optional - add another regularization to the loss function
+        ###if tv_weight > 0:
+        ###    total_loss += tv_weight * tv_loss(out_HR)
+
+        # Back propagation
+        total_loss.backward()
+
+        # Log
+        # imgs['LR_np'] - resized (interpolated), aka corrupted image
+        # imgs['HR_np'] - Original (HR) image
+        # TODO: validate their PSNR calculation
+        psnr_LR = compare_psnr(imgs['LR_np'], torch_to_np(out_LR))
+        psnr_HR = compare_psnr(imgs['HR_np'], torch_to_np(out_HR))
+        print ('Iteration %05d    PSNR_LR %.3f   PSNR_HR %.3f' % (i, psnr_LR, psnr_HR), '\r', end='')
+
+        # History
+        psnr_history.append([psnr_LR, psnr_HR])
+
+        # TODO: add checkpoint here if current_psnr - prev_iter_psnr < threshold (check with Tamar and Idan if we want to check this or the case of degrading results
+        PSNR_LR_drop_flag = False
+        PSNR_HR_drop_flag = False
+        if i > 1:
+            PSNR_LR_drop_flag = (psnr_history[i-1][0] - psnr_LR > PSNR_drop_thresh)
+            PSNR_HR_drop_flag = (psnr_history[i-1][1] - psnr_HR > PSNR_drop_thresh)
+
+
+        if (i % plot_frequency == 0):
+            # Add noise to net weights, if needed
+            if parameters.noise_weights:
+                net.apply(add_noise_to_weights)
+
+        if (i % plot_frequency == 0) or PSNR_LR_drop_flag or PSNR_HR_drop_flag:
+            img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}".format(
+                iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
+            if PSNR_LR_drop_flag:
+                img_path = img_path + "_PSNR_drop_LR"
+            if PSNR_HR_drop_flag:
+                img_path + "_PSNR_drop_HR"
+            img_path = img_path + ".jpg"
+            # Save results
+            torchvision.utils.save_image(out_HR, img_path)
+
+            if PLOT:
+                out_HR_np = torch_to_np(out_HR)
+                plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], np.clip(out_HR_np, 0, 1)], factor=13, nrow=3)
+
+        i += 1
+
+        return total_loss
+
+
+    psnr_history = []
+    net_input_saved = net_input.detach().clone()
+    noise = net_input.detach().clone()
+
+    #i = 0
+    p = get_params(OPT_OVER, net, net_input)
+    optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr, noiseGradients=parameters.noise_grad)
+
+    #Save last result
+    img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}_final.jpg".format(
+                iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
+    torchvision.utils.save_image(net(net_input), img_path)
+
+    # Display results
+
+    out_HR_np = np.clip(torch_to_np(net(net_input)), 0, 1)
+    result_deep_prior = put_in_center(out_HR_np, imgs['orig_np'].shape[1:])
+
+
+    iteration_array = np.array(range(1,num_iter+1))
+    psnr_history = np.array(psnr_history)
+
+    psnr_corrupted = psnr_history[:, 0]
+    psnr_hr = psnr_history[:, 1]
+
+    write_max_psnr_vals(results_dir, psnr_corrupted, psnr_hr)
+    save_psnr_pickle_and_csv(results_dir, psnr_hr, parameters)
+    plot_psnr(iteration_array, psnr_corrupted, psnr_hr, results_dir)
+
+    # For the paper we acually took `_bicubic.png` files from LapSRN viewer and used `result_deep_prior` as our result
+    if PLOT:
+        plot_image_grid([imgs['HR_np'],
+                         imgs['bicubic_np'],
+                         out_HR_np], factor=4, nrow=1)
+
+    return psnr_hr
+
+
+def main():
+    global i
+    # Starts here
+    imgs = load_LR_HR_imgs_sr(path_to_image, imsize, factor, enforse_div32)
+
+    imgs['bicubic_np'], imgs['sharp_np'], imgs['nearest_np'] = get_baselines(imgs['LR_pil'], imgs['HR_pil'])
+
+    ''' ### Osher: removed plot, uncomment this section later
+    if PLOT:
+        plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], imgs['sharp_np'], imgs['nearest_np']], 4,12);
+        print ('PSNR bicubic: %.4f   PSNR nearest: %.4f' %  (
+                                            compare_psnr(imgs['HR_np'], imgs['bicubic_np']), 
+                                            compare_psnr(imgs['HR_np'], imgs['nearest_np'])))
+    '''
+
+    # # Set up parameters and net
+
+    input_depth = parameters.network_depth
+
+    INPUT = 'noise'
+    pad = 'reflection'
+    OPT_OVER = 'net'
+    KERNEL_TYPE = 'lanczos2'
+
+    LR = parameters.lr  # 0.01
+    tv_weight = 0.0
+
+    OPTIMIZER = parameters.optimizer  # 'adam'
+
+    if factor == 4:
+        num_iter = 2000
+        reg_noise_std = 0.03
+    elif factor == 8:
+        num_iter = 4000
+        reg_noise_std = 0.05
+    else:
+        assert False, 'We did not experiment with other factors'
+
+    if parameters.iter_num != num_iter:
+        num_iter = parameters.iter_num
+
+    if parameters.reg_noise_zero:
+        reg_noise_std = 0.0
+
+    if parameters.reg_noise_large:
+        reg_noise_std *= 10
+
+    # Used to compare normal Z initialization with uniform init
+    ''' Input (Z) parameters '''
+    input_normal_noise_mean = 0.5
+    input_resize_factor = parameters.input_resize_factor
+    noise_type = parameters.input_noise_type
+    net_inputSize_same_as_image = not (parameters.downsize_net_input)
+
+    if net_inputSize_same_as_image:
+        net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0]),
+                              noise_type=noise_type, mean=input_normal_noise_mean).type(dtype).detach()
+    else:
+        # Network input is half the size (WORKS ONLY FOR EVEN DIMENSIONS!)
+        net_input = get_noise(input_depth, INPUT, (
+        imgs['HR_pil'].size[1] / input_resize_factor, imgs['HR_pil'].size[0] / input_resize_factor),
+                              noise_type=noise_type, mean=input_normal_noise_mean).type(
+            dtype).detach()
+        # Upsample so the network input is the same size as the image input
+        net_input = torch.nn.functional.upsample(net_input, scale_factor=input_resize_factor, mode='bilinear').type(
+            dtype)
+        # TODO: From torch 1.0: net_input = torch.nn.functional.interpolate(net_input,scale_factor=input_resize_factor,mode='bilinear')
+
+    NET_TYPE = parameters.net_arch  # 'ResNet' #'skip' # UNet, ResNet
+    net = get_net(input_depth, NET_TYPE, pad,
+                  skip_n33d=128,
+                  skip_n33u=128,
+                  skip_n11=4,
+                  num_scales=5,
+                  upsample_mode='bilinear').type(dtype)
+
+    # Initialize data structures to contain the results
+    all_psnr_results = np.zeros((tests_num, num_iter))
+    #TODO: what other information we'd like to save from each run?
+    # Especially: what layer-related statisics (e.g. std
+
+
+    # Magic happens here
+    for j in range(tests_num):
+        #TODO: maybe net assignment should be INSIDE the for loop?
+        psnr_values = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR, num_iter,
+                     KERNEL_TYPE)
+
+        all_psnr_results[j, :] = psnr_values
+        # Reset global variables
+        i = 0
+
+        print("Completed run #{runNum} out of {totalRunNum}".format(runNum = j +1, totalRunNum=tests_num))
+
+    x_axis = np.array(range(1, num_iter + 1))
+    plot_psnr_values(x_axis, all_psnr_results, results_dir)
+
+
 '''
-
-# # Set up parameters and net
-
-
-input_depth = parameters.network_depth
- 
-INPUT =     'noise'
-pad   =     'reflection'
-OPT_OVER =  'net'
-KERNEL_TYPE='lanczos2'
-
-LR = parameters.lr#0.01
-tv_weight = 0.0
-
-OPTIMIZER = parameters.optimizer#'adam'
-
-if factor == 4: 
-    num_iter = 2000
-    reg_noise_std = 0.03
-elif factor == 8:
-    num_iter = 4000
-    reg_noise_std = 0.05
-else:
-    assert False, 'We did not experiment with other factors'
-
-if parameters.iter_num != num_iter:
-    num_iter = parameters.iter_num
-
-if parameters.reg_noise_zero:
-    reg_noise_std = 0.0
-
-if parameters.reg_noise_large:
-    reg_noise_std *= 10
-
-# Used to compare normal Z initialization with uniform init
-''' Input (Z) parameters '''
-input_normal_noise_mean = 0.5
-input_resize_factor = parameters.input_resize_factor
-noise_type = parameters.input_noise_type
-net_inputSize_same_as_image = not(parameters.downsize_net_input)
-
-if net_inputSize_same_as_image:
-    net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1], imgs['HR_pil'].size[0]),
-                          noise_type=noise_type, mean=input_normal_noise_mean).type(dtype).detach()
-else:
-    # Network input is half the size (WORKS ONLY FOR EVEN DIMENSIONS!)
-    net_input = get_noise(input_depth, INPUT, (imgs['HR_pil'].size[1] / input_resize_factor, imgs['HR_pil'].size[0] / input_resize_factor),
-                          noise_type=noise_type, mean=input_normal_noise_mean).type(
-        dtype).detach()
-    # Upsample so the network input is the same size as the image input
-    net_input = torch.nn.functional.upsample(net_input, scale_factor=input_resize_factor, mode='bilinear').type(dtype)
-    # TODO: From torch 1.0: net_input = torch.nn.functional.interpolate(net_input,scale_factor=input_resize_factor,mode='bilinear')
-
-###net_input = net_input.to(device)
-
-NET_TYPE = parameters.net_arch#'ResNet' #'skip' # UNet, ResNet
-net = get_net(input_depth, NET_TYPE, pad,
-              skip_n33d=128,
-              skip_n33u=128,
-              skip_n11=4,
-              num_scales=5,
-              upsample_mode='bilinear').type(dtype)
-###net = net.to(device)
-
-initType = parameters.weight_init#"xavier_normal"
-weight_init_wrapper = lambda m: init_weights(m, initType)
-net.apply(weight_init_wrapper)
-
-# Losses
-mse = torch.nn.MSELoss().type(dtype)
-
-img_LR_var = np_to_torch(imgs['LR_np']).type(dtype)
-img_LR_var = img_LR_var.to(device)
-
-downsampler = Downsampler(n_planes=3, factor=factor, kernel_type=KERNEL_TYPE, phase=0.5, preserve_size=True).type(dtype)
-
-#gaussian_filter = GaussianFilter()
-
+Define global variables and run main
 '''
-filtered_tensor = gaussian_filter(np_to_torch(imgs['HR_np'])).type(dtype)
-filtered_np = torch_to_np(filtered_tensor)
-filtered_np = np.swapaxes(filtered_np, 0, 2)
-filtered_np = np.swapaxes(filtered_np, 0, 1)
-plt.imshow(filtered_np)
-'''
-
-# # Define closure and optimize
-
-# In[ ]:
-
-
-def closure():
-    global i, net_input
-    ###start_time = time.time()
-    if reg_noise_std > 0:
-        ### Add noise to network - the bigger the SR factor, the more noise (higher std) is added!
-        net_input = net_input_saved + (noise.normal_() * reg_noise_std)
-
-    # SR image
-    out_HR = net(net_input)
-    # Downsample the net's results
-    out_LR = downsampler(out_HR)
-
-    # Loss is calculated between the LR versions
-    total_loss = mse(out_LR, img_LR_var) 
-
-    # Optional - add another regularization to the loss function
-    if tv_weight > 0:
-        total_loss += tv_weight * tv_loss(out_HR)
-
-    # Back propagation
-    total_loss.backward()
-
-    # Log
-    # imgs['LR_np'] - resized (interpolated), aka corrupted image
-    # imgs['HR_np'] - Original (HR) image
-    # TODO: validate their PSNR calculation
-    psnr_LR = compare_psnr(imgs['LR_np'], torch_to_np(out_LR))
-    psnr_HR = compare_psnr(imgs['HR_np'], torch_to_np(out_HR))
-    print ('Iteration %05d    PSNR_LR %.3f   PSNR_HR %.3f' % (i, psnr_LR, psnr_HR), '\r', end='')
-                      
-    # History
-    psnr_history.append([psnr_LR, psnr_HR])
-
-    # TODO: add checkpoint here if current_psnr - prev_iter_psnr < threshold (check with Tamar and Idan if we want to check this or the case of degrading results
-    PSNR_LR_drop_flag = False
-    PSNR_HR_drop_flag = False
-    if i > 1:
-        PSNR_LR_drop_flag = (psnr_history[i-1][0] - psnr_LR > PSNR_drop_thresh)
-        PSNR_HR_drop_flag = (psnr_history[i-1][1] - psnr_HR > PSNR_drop_thresh)
-
-
-    if (i % plot_frequency == 0):
-        # Add noise to net weights, if needed
-        if parameters.noise_weights:
-            net.apply(add_noise_to_weights)
-
-    if (i % plot_frequency == 0) or PSNR_LR_drop_flag or PSNR_HR_drop_flag:
-        img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}".format(
-            iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
-        if PSNR_LR_drop_flag:
-            img_path = img_path + "_PSNR_drop_LR"
-        if PSNR_HR_drop_flag:
-            img_path + "_PSNR_drop_HR"
-        img_path = img_path + ".jpg"
-        # Save results
-        torchvision.utils.save_image(out_HR, img_path)
-
-        if PLOT:
-            out_HR_np = torch_to_np(out_HR)
-            plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], np.clip(out_HR_np, 0, 1)], factor=13, nrow=3)
-
-    i += 1
-    
-    return total_loss
-
-
-
-
-psnr_history = []
-net_input_saved = net_input.detach().clone()
-noise = net_input.detach().clone()
-
 i = 0
-num_of_worse_checkpoint = 5
-p = get_params(OPT_OVER, net, net_input)
-optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr, noiseGradients=parameters.noise_grad)
+tests_num = 10
+main()
 
 
-#Save last result
-img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}_final.jpg".format(
-            iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
-torchvision.utils.save_image(net(net_input), img_path)
-
-# Display results
-
-# TODO: consider moving this to a function
-out_HR_np = np.clip(torch_to_np(net(net_input)), 0, 1)
-result_deep_prior = put_in_center(out_HR_np, imgs['orig_np'].shape[1:])
-
-
-iteration_array = np.array(range(1,num_iter+1))
-psnr_history = np.array(psnr_history)
-
-psnr_corrupted = psnr_history[:, 0]
-psnr_hr = psnr_history[:, 1]
-
-max_psnr_corroupted = "{0:.4f}".format(np.max(psnr_corrupted))
-max_psnr_hr = "{0:.4f}".format(max(psnr_hr))
-psnr_txt_file = results_dir + "psnr_val_{corruptedPsnr}_{HR_Psnr}.txt".format(
-    corruptedPsnr= max_psnr_corroupted, HR_Psnr=max_psnr_hr)
-
-with open(psnr_txt_file, "w") as log:
-    log.write("Corrupted max PSNR: " + max_psnr_corroupted+"\n")
-    log.write("HR max PSNR: " + max_psnr_hr)
-
-
-#TODO: consider adding more details in name
-#TODO: move this into a function
-psnr_hr_values_file = results_dir + "psnr_vals"
-if parameters.noise_weights:
-    psnr_hr_values_file += "+noisedWeights"
-
-if parameters.noise_grad:
-    psnr_hr_values_file += "_noisedGrad"
-
-if parameters.noise_lr:
-    psnr_hr_values_file += "_noisedLr"
-
-psnr_hr_values_pickle = psnr_hr_values_file+".pickle"
-psnr_hr_values_csv = psnr_hr_values_file+".csv"
-
-with open(psnr_hr_values_pickle, "wb") as psnr_pickle:
-    pickle.dump(psnr_hr, psnr_pickle)
-
-with open(psnr_hr_values_csv, "w") as psnr_csv:
-    wr = csv.writer(psnr_csv, dialect='excel')
-    wr.writerows(map(lambda x: [x], psnr_hr))
-
-plt.plot(iteration_array, psnr_corrupted, 'g')
-plt.plot(iteration_array, psnr_hr, 'b')
-plt.title('PSNR values wrt iteration number')
-plt.xlabel("Iteration")
-plt.ylabel("PSNR value")
-plt.legend(("PSNR compared to upsampled image", "PSNR compared to HR image"),
-           loc='best')
-#plt.show()
-plt_name = results_dir+"psnr_figure.png"
-plt.savefig(plt_name)
-
-# TODO: consider two subplots (one for each psnr), consider saving psnr-values arrays
-
-
-'''
-
-### https://matplotlib.org/gallery/recipes/create_subplots.html
-'''
-
-# For the paper we acually took `_bicubic.png` files from LapSRN viewer and used `result_deep_prior` as our result
-if PLOT:
-    plot_image_grid([imgs['HR_np'],
-                     imgs['bicubic_np'],
-                     out_HR_np], factor=4, nrow=1)
 

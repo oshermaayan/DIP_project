@@ -329,4 +329,3 @@ def plot_psnr_values(x_axis, data, dir):
     plt_name = dir + "psnr_figure.png"
     plt.savefig(plt_name)
     plt.close()
-

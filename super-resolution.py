@@ -38,10 +38,17 @@ from utils.sr_utils import *
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
-torch.backends.cudnn.enabled = True
-torch.backends.cudnn.benchmark = True
-#TODO: verify w'ere using cuda!
-dtype = torch.cuda.FloatTensor#torch.FloatTensor
+
+#TODO: verify the if use_cuda code works
+if use_cuda:
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    dtype = torch.cuda.FloatTensor # # torch.FloatTensor
+
+else:
+    dtype = torch.FloatTensor  # torch.cuda.FloatTensor#
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--file_path', type=str, help='Full path for image', default='data/sr/zebra_GT.png')
@@ -84,7 +91,7 @@ imsize = -1
 factor = parameters.factor #4#8
 enforse_div32 = 'CROP' # we usually need the dimensions to be divisible by a power of two (32 in this case)
 PLOT = False
-PSNR_drop_thresh = 1
+PSNR_drop_thresh = 4
 plot_frequency = parameters.disp_freq #100
 
 # To produce images from the paper we took *_GT.png images from LapSRN viewer for corresponding factor,
@@ -132,9 +139,14 @@ def add_noise_to_weights(m):
 
 def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg_noise_std, LR, num_iter,
                  KERNEL_TYPE, results_dir):
+
+    global  best_result_img, best_result_net_weights, max_PSNR_val
     initType = parameters.weight_init#"xavier_normal"
     weight_init_wrapper = lambda m: init_weights(m, initType)
     net.apply(weight_init_wrapper)
+
+    #Save initial network dict
+    torch.save(net.state_dict(), results_dir+"initial_weights")
 
     # Losses
     mse = torch.nn.MSELoss().type(dtype)
@@ -160,7 +172,7 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
 
 
     def closure():
-        global i, net_input
+        global i, net_input, max_PSNR_val, best_result_img, best_result_net_weights
         ###start_time = time.time()
         if reg_noise_std > 0:
             ### Add noise to network - the bigger the SR factor, the more noise (higher std) is added!
@@ -192,13 +204,20 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
         # History
         psnr_history.append([psnr_LR, psnr_HR])
 
+
+        # Save best PSNR results (image and net)
+        if psnr_HR > max_PSNR_val:
+            max_PSNR_val = psnr_HR
+            best_result_img = out_HR
+            best_result_net_weights = net.state_dict()
+
+
         # TODO: add checkpoint here if current_psnr - prev_iter_psnr < threshold (check with Tamar and Idan if we want to check this or the case of degrading results
         PSNR_LR_drop_flag = False
         PSNR_HR_drop_flag = False
         if i > 1:
             PSNR_LR_drop_flag = (psnr_history[i-1][0] - psnr_LR > PSNR_drop_thresh)
             PSNR_HR_drop_flag = (psnr_history[i-1][1] - psnr_HR > PSNR_drop_thresh)
-
 
         if (i % plot_frequency == 0):
             # Add noise to net weights, if needed
@@ -224,7 +243,9 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
 
         return total_loss
 
-
+    best_result_img = 0
+    best_result_net_weights = 0
+    max_PSNR_val = 0.0
     psnr_history = []
     net_input_saved = net_input.detach().clone()
     noise = net_input.detach().clone()
@@ -237,6 +258,15 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}_final.jpg".format(
                 iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
     torchvision.utils.save_image(net(net_input), img_path)
+    # Save network's weights from the last iteration
+    torch.save(net.state_dict(), results_dir+"final_iteration_weights")
+
+    # save best result - both image and net state
+    img_path = results_dir + "best_result.jpg"
+    torchvision.utils.save_image(best_result_img, img_path)
+    network_best_state_path = results_dir + "best_res_weights"
+    torch.save(best_result_net_weights, network_best_state_path)
+
 
     # Display results
 
@@ -391,6 +421,9 @@ Define global variables and run main
 
 i = 0
 tests_num = 10
+best_result_img = 0
+best_result_net_weights = 0
+max_PSNR_val = 0.0
 main()
 
 

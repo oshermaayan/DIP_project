@@ -204,7 +204,8 @@ def torch_to_np(img_var):
     return img_var.detach().cpu().numpy()[0]
 
 
-def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised=False, noiseGradients=False, lrChangeRate=100):
+def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
+             gradient_std, isLRNoised=False, noiseGradients=False, lrChangeRate=100):
     """Runs optimization loop.
 
     Args:
@@ -241,18 +242,25 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, isLRNoised=False
             if noiseGradients:
                 if j % (lrChangeRate - 1) == 0:
                     # Use max gradient absoulte size as std
-                    max_grad = 0
+                    max_grad = 0.0
                     for p in parameters:
-                        if abs(p.grad) > max_grad:
-                            max_grad = abs(p.grad)
+                        x = abs(np.max(p.grad.data.float().cpu().numpy()))
+                        y = abs(np.min(p.grad.data.float().cpu().numpy()))
+                        if x > y:
+                            tmp_max_grad = x
+                        else:
+                            tmp_max_grad = y
+
+                        if tmp_max_grad > max_grad:
+                            max_grad = tmp_max_grad
 
                     #Add noise to gradients
                     for p in parameters:
-                        p.grad += torch.distributions.normal.Normal(0.0, max_grad / 100.0).sample().type(torch.cuda.FloatTensor)
+                        p.grad += torch.distributions.normal.Normal(0.0, max_grad * gradient_std).sample().type(torch.cuda.FloatTensor)
 
             optimizer.step()
 
-            noise_sampler = torch.distributions.normal.Normal(0.0, LR / 10.0)
+            noise_sampler = torch.distributions.normal.Normal(0.0, LR * lr_std)
             if isLRNoised:
                 # Add noise to learning rate
                 if j % (lrChangeRate -1) == 0:

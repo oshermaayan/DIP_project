@@ -55,7 +55,7 @@ parser.add_argument('--file_path', type=str, help='Full path for image', default
 parser.add_argument('--factor', type=int, help='SR factor (4 or 8)', default=4)
 parser.add_argument('--weight_init', type=str, help='type of weight initializtion, must be one of the following:'\
                                                    'uniform,normal,constant,dirac,xavier_uniform,xavier_normal,kaiming_uniform,kaiming_normal'
-                                                    , default='kaiming_normal')
+                                                    , default='kaiming_uniform')
 parser.add_argument('--optimizer', type=str, help='Optimizer (e.g. ADAM, SGD...). USE LOWERCASE!', default='adam')
 parser.add_argument('--lr', type=float, help='Learning rate, default is 0.01', default=0.01)
 parser.add_argument('--net_arch', type=str, help='CNN architecture. Currently supports: skip, ResNet,UNet', default='skip')
@@ -72,8 +72,12 @@ parser.add_argument('--reg_noise_large', type=bool, help='Should the reg_noise_s
 parser.add_argument('--iter_num', type=int, help='Number of optimization iterations', default=2000)
 
 parser.add_argument('--noise_lr', type=bool, help='Should random noise be added to lr', default=False)
+parser.add_argument('--noise_lr_std', type=float, help='STD of lr noise', default=1.0/10)
 parser.add_argument('--noise_grad', type=bool, help='Should random noise be added to gradients', default=False)
+parser.add_argument('--noise_grad_std', type=float, help='STD of gradients noise', default=1/100.0)
 parser.add_argument('--noise_weights', type=bool, help='Should random noise be added to weights', default=False)
+parser.add_argument('--noise_weights_std', type=float, help='STD of weights noise', default=1/100.0)
+parser.add_argument('--noise_feature_maps', type=bool, help='Should random noise be added to feature maps after some layers', default=False)
 parser.add_argument('--simulationName', type=str, help='Simulation name (e.g. weights_init, noise_grad...)', default="defaultDir")
 
 parameters = parser.parse_args()
@@ -124,10 +128,10 @@ def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
         else:
             raise ("Illegal weight initialization type")
 
-def add_noise_to_weights(m):
+def add_noise_to_weights(m, std):
     if (isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d)):
         max_layer_weight = float(torch.max(m.weight.data))
-        noise_sampler = torch.distributions.normal.Normal(0.0, max_layer_weight/100.0)
+        noise_sampler = torch.distributions.normal.Normal(0.0, max_layer_weight * std)
         m.weight.data += noise_sampler.sample(m.weight.data.shape).type(dtype)
 
     #
@@ -140,7 +144,7 @@ def add_noise_to_weights(m):
 def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg_noise_std, LR, num_iter,
                  KERNEL_TYPE, results_dir):
 
-    global  best_result_img, best_result_net_weights, max_PSNR_val
+    global  best_result_img, best_result_net_weights, max_PSNR_val, max_psnr_iter
     initType = parameters.weight_init#"xavier_normal"
     weight_init_wrapper = lambda m: init_weights(m, initType)
     net.apply(weight_init_wrapper)
@@ -172,7 +176,7 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
 
 
     def closure():
-        global i, net_input, max_PSNR_val, best_result_img, best_result_net_weights
+        global i, net_input, max_PSNR_val, best_result_img, best_result_net_weights, max_psnr_iter
         ###start_time = time.time()
         if reg_noise_std > 0:
             ### Add noise to network - the bigger the SR factor, the more noise (higher std) is added!
@@ -208,6 +212,7 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
         # Save best PSNR results (image and net)
         if psnr_HR > max_PSNR_val:
             max_PSNR_val = psnr_HR
+            max_psnr_iter = i
             best_result_img = out_HR
             best_result_net_weights = net.state_dict()
 
@@ -222,15 +227,18 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
         if (i % plot_frequency == 0):
             # Add noise to net weights, if needed
             if parameters.noise_weights:
-                net.apply(add_noise_to_weights)
+                weight_init_wrapper = lambda m: add_noise_to_weights(m, std=parameters.noise_weights_std)
+                net.apply(weight_init_wrapper)
 
         if (i % plot_frequency == 0) or PSNR_LR_drop_flag or PSNR_HR_drop_flag:
             img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}".format(
                 iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
+            '''
             if PSNR_LR_drop_flag:
                 img_path = img_path + "_PSNR_drop_LR"
             if PSNR_HR_drop_flag:
                 img_path + "_PSNR_drop_HR"
+            '''
             img_path = img_path + ".jpg"
             # Save results
             torchvision.utils.save_image(out_HR, img_path)
@@ -246,13 +254,16 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     best_result_img = 0
     best_result_net_weights = 0
     max_PSNR_val = 0.0
+    max_psnr_iter = -1
     psnr_history = []
     net_input_saved = net_input.detach().clone()
     noise = net_input.detach().clone()
 
     #i = 0
     p = get_params(OPT_OVER, net, net_input)
-    optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr, noiseGradients=parameters.noise_grad)
+    optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr, noiseGradients=parameters.noise_grad,
+                                                    lr_std = parameters.noise_lr_std
+                                                    ,gradient_std=parameters.noise_grad_std)
 
     #Save last result
     img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}_final.jpg".format(
@@ -290,7 +301,7 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
                          imgs['bicubic_np'],
                          out_HR_np], factor=4, nrow=1)
 
-    return psnr_hr
+    return psnr_hr, [max_psnr_iter, max_PSNR_val]
 
 
 def main():
@@ -365,6 +376,7 @@ def main():
 
     # Initialize data structures to contain the results
     all_psnr_results = np.zeros((tests_num, num_iter))
+    best_psnr_results = np.zeros((tests_num, 2))
     #TODO: what other information we'd like to save from each run?
     # Especially: what layer-related statisics (e.g. std
 
@@ -388,21 +400,23 @@ def main():
                       upsample_mode='bilinear').type(dtype)
 
 
-        psnr_values = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR,
+        psnr_values, best_run_psnr = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR,
                     num_iter, KERNEL_TYPE, results_dir)
 
         all_psnr_results[j, :] = psnr_values
+        best_psnr_results[j, :] = best_run_psnr
         # Reset global variables
         i = 0
 
         print("Completed run #{runNum} out of {totalRunNum}".format(runNum = j +1, totalRunNum=tests_num))
 
+    '''
     endTime = time.time()
     duration = endTime- startTime
     print("Total time for {expNum} experiments with {iterNum} iterations:{time}"
           "\nAverage time per simulation:{avgTime}".format(
         expNum=tests_num, iterNum=num_iter,time=duration, avgTime=duration/tests_num))
-
+    '''
     x_axis = np.array(range(1, num_iter + 1))
     plot_psnr_values(x_axis, all_psnr_results, baseDir)
 
@@ -411,6 +425,12 @@ def main():
         # Each row is a different simulation
         wr = csv.writer(csvFile, dialect='excel')
         wr.writerows(all_psnr_results.tolist())
+
+    best_psnr_csv = baseDir + "best_PSNRs.csv"
+    with open(best_psnr_csv, "w") as csvFile:
+        # Each row is a different simulation
+        wr = csv.writer(csvFile, dialect='excel')
+        wr.writerows(best_psnr_results.tolist())
 
 
 
@@ -424,6 +444,7 @@ tests_num = 10
 best_result_img = 0
 best_result_net_weights = 0
 max_PSNR_val = 0.0
+max_psnr_iter = -1
 main()
 
 

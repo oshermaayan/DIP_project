@@ -258,6 +258,9 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
                     for p in parameters:
                         p.grad += torch.distributions.normal.Normal(0.0, max_grad * gradient_std).sample().type(torch.cuda.FloatTensor)
 
+            #TODO: find relevant clipping value!
+            torch.nn.utils.clip_grad_norm_(parameters, 10e-4)
+
             optimizer.step()
 
             noise_sampler = torch.distributions.normal.Normal(0.0, LR * lr_std)

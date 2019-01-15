@@ -79,6 +79,8 @@ parser.add_argument('--noise_weights', type=bool, help='Should random noise be a
 parser.add_argument('--noise_weights_std', type=float, help='STD of weights noise', default=1/100.0)
 parser.add_argument('--noise_feature_maps', type=bool, help='Should random noise be added to feature maps after some layers', default=False)
 parser.add_argument('--simulationName', type=str, help='Simulation name (e.g. weights_init, noise_grad...)', default="defaultDir")
+parser.add_argument('--saveWeights', type=bool, help="Whether the net\'s weights are to be saved", default=True)
+parser.add_argument('--addRegNoiseToFeatureMaps', type=bool, help="Add regularization noise to feature maps", default=False)
 
 parameters = parser.parse_args()
 
@@ -150,7 +152,8 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     net.apply(weight_init_wrapper)
 
     #Save initial network dict
-    torch.save(net.state_dict(), results_dir+"initial_weights")
+    if parameters.saveWeights == True:
+        torch.save(net.state_dict(), results_dir+"initial_weights")
 
     # Losses
     mse = torch.nn.MSELoss().type(dtype)
@@ -269,14 +272,17 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}_final.jpg".format(
                 iter=str(i),CNN=parameters.net_arch,depth=str(parameters.network_depth), initMethod=parameters.weight_init)
     torchvision.utils.save_image(net(net_input), img_path)
-    # Save network's weights from the last iteration
-    torch.save(net.state_dict(), results_dir+"final_iteration_weights")
 
     # save best result - both image and net state
     img_path = results_dir + "best_result.jpg"
     torchvision.utils.save_image(best_result_img, img_path)
-    network_best_state_path = results_dir + "best_res_weights"
-    torch.save(best_result_net_weights, network_best_state_path)
+
+    if parameters.saveWeights == True:
+        # Save network's weights from the last iteration
+        torch.save(net.state_dict(), results_dir + "final_iteration_weights")
+        # Save network's weights from the best result
+        network_best_state_path = results_dir + "best_res_weights"
+        torch.save(best_result_net_weights, network_best_state_path)
 
 
     # Display results
@@ -392,12 +398,18 @@ def main():
         if not os.path.exists(results_dir):
             os.makedirs(results_dir)
 
+        #Set seed manually to reproduce results
+        torch.manual_seed(j)
+        torch.cuda.manual_seed(j)
+
+
+        add_reg_noise = parameters.addRegNoiseToFeatureMaps
         net = get_net(input_depth, NET_TYPE, pad,
                       skip_n33d=128,
                       skip_n33u=128,
                       skip_n11=4,
                       num_scales=5,
-                      upsample_mode='bilinear').type(dtype)
+                      upsample_mode='bilinear',add_reg_noise=True).type(dtype)
 
 
         psnr_values, best_run_psnr = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR,

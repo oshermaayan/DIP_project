@@ -1,14 +1,15 @@
 import torch
 import torch.nn as nn
 from .common import *
+from models import adder_layer
 
 def skip(
         num_input_channels=2, num_output_channels=3, 
         num_channels_down=[16, 32, 64, 128, 128], num_channels_up=[16, 32, 64, 128, 128], num_channels_skip=[4, 4, 4, 4, 4], 
         filter_size_down=3, filter_size_up=3, filter_skip_size=1,
         need_sigmoid=True, need_bias=True, 
-        pad='zero', upsample_mode='nearest', downsample_mode='stride', act_fun='LeakyReLU', 
-        need1x1_up=True):
+        pad='zero', upsample_mode='nearest', downsample_mode='stride', act_fun='LeakyReLU',
+        need1x1_up=True, add_reg_noise=False, reg_noise_val=0.03):
     """Assembles encoder-decoder with skip connections.
 
     Arguments:
@@ -48,6 +49,7 @@ def skip(
         skip = nn.Sequential()
 
         if num_channels_skip[i] != 0:
+            #Concat deeper with a skip connection
             model_tmp.add(Concat(1, skip, deeper))
         else:
             model_tmp.add(deeper)
@@ -89,6 +91,11 @@ def skip(
             model_tmp.add(conv(num_channels_up[i], num_channels_up[i], 1, bias=need_bias, pad=pad))
             model_tmp.add(bn(num_channels_up[i]))
             model_tmp.add(act(act_fun))
+
+        #Add noise to feature map after second and fourth "blocks"
+        if i in [1,3]:
+            if add_reg_noise:
+                model_tmp.add(adder_layer.ConstAdder(reg_noise_val))
 
         input_depth = num_channels_down[i]
         model_tmp = deeper_main

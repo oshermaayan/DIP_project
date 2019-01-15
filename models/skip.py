@@ -92,7 +92,7 @@ def skip(
             model_tmp.add(bn(num_channels_up[i]))
             model_tmp.add(act(act_fun))
 
-        #Add noise to feature map after second and fourth "blocks"
+        #Add noise to feature map after second and fourth "blocks" (in the downwwards direction)
         if i in [1,3]:
             if add_reg_noise:
                 model_tmp.add(adder_layer.ConstAdder(reg_noise_val))

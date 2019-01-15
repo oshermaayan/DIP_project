@@ -77,10 +77,13 @@ parser.add_argument('--noise_grad', type=bool, help='Should random noise be adde
 parser.add_argument('--noise_grad_std', type=float, help='STD of gradients noise', default=1/100.0)
 parser.add_argument('--noise_weights', type=bool, help='Should random noise be added to weights', default=False)
 parser.add_argument('--noise_weights_std', type=float, help='STD of weights noise', default=1/100.0)
-parser.add_argument('--noise_feature_maps', type=bool, help='Should random noise be added to feature maps after some layers', default=False)
 parser.add_argument('--simulationName', type=str, help='Simulation name (e.g. weights_init, noise_grad...)', default="defaultDir")
 parser.add_argument('--saveWeights', type=bool, help="Whether the net\'s weights are to be saved", default=True)
 parser.add_argument('--addRegNoiseToFeatureMaps', type=bool, help="Add regularization noise to feature maps", default=False)
+parser.add_argument('--weightNoiseStdScale', type=str, help="Should weights-noise's std should"
+                                                            "be scaled by the max weight in the layer"
+                                                            "or by the mean of absolute values. "
+                                                            "Values. Values should be \'mean'' or \'max\'", default="mean")
 
 parameters = parser.parse_args()
 
@@ -130,10 +133,23 @@ def init_weights(m, initType, mean=0 ,std=1 ,constant=0):
         else:
             raise ("Illegal weight initialization type")
 
-def add_noise_to_weights(m, std):
+def add_noise_to_weights(m, std, mean_or_max="mean"):
+    '''
+
+    :param m:
+    :param std:
+    :param mean_or_max: which factor to scale the noise's std with: max weight
+    :return:
+    '''
     if (isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d)):
-        max_layer_weight = float(torch.max(m.weight.data))
-        noise_sampler = torch.distributions.normal.Normal(0.0, max_layer_weight * std)
+        if mean_or_max == "mean":
+            scale_weight = float(torch.mean(torch.abs(m.weight.data)))
+        else:
+            scale_weight = torch.max(torch.abs(m.weight.data))
+
+        # verify scale_weight is not zero/very small number
+        scale_weight = max(scale_weight, 10e-4)
+        noise_sampler = torch.distributions.normal.Normal(0.0, scale_weight * std)
         m.weight.data += noise_sampler.sample(m.weight.data.shape).type(dtype)
 
     #
@@ -206,7 +222,7 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
         # TODO: validate their PSNR calculation
         psnr_LR = compare_psnr(imgs['LR_np'], torch_to_np(out_LR))
         psnr_HR = compare_psnr(imgs['HR_np'], torch_to_np(out_HR))
-        print ('Iteration %05d    PSNR_LR %.3f   PSNR_HR %.3f' % (i, psnr_LR, psnr_HR), '\r', end='')
+        print ('Iteration %06d    PSNR_LR %.3f   PSNR_HR %.3f' % (i, psnr_LR, psnr_HR), '\r', end='')
 
         # History
         psnr_history.append([psnr_LR, psnr_HR])
@@ -230,7 +246,9 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
         if (i % plot_frequency == 0):
             # Add noise to net weights, if needed
             if parameters.noise_weights:
-                weight_init_wrapper = lambda m: add_noise_to_weights(m, std=parameters.noise_weights_std)
+                weightsNoiseScale = parameters.weightNoiseStdScale
+                weight_init_wrapper = lambda m: add_noise_to_weights(m, std=parameters.noise_weights_std,
+                                                                    mean_or_max=weightsNoiseScale)
                 net.apply(weight_init_wrapper)
 
         if (i % plot_frequency == 0) or PSNR_LR_drop_flag or PSNR_HR_drop_flag:
@@ -403,13 +421,13 @@ def main():
         torch.cuda.manual_seed(j)
 
 
-        add_reg_noise = parameters.addRegNoiseToFeatureMaps
+        add_reg_noise_in_net = parameters.addRegNoiseToFeatureMaps
         net = get_net(input_depth, NET_TYPE, pad,
                       skip_n33d=128,
                       skip_n33u=128,
                       skip_n11=4,
                       num_scales=5,
-                      upsample_mode='bilinear',add_reg_noise=True).type(dtype)
+                      upsample_mode='bilinear',add_reg_noise=add_reg_noise_in_net).type(dtype)
 
 
         psnr_values, best_run_psnr = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR,

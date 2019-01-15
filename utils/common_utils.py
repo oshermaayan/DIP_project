@@ -254,12 +254,17 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
                         if tmp_max_grad > max_grad:
                             max_grad = tmp_max_grad
 
+                    #Verify max_grad isn't zero or a very small number
+                    max_grad = max(max_grad, 10e-5)
                     #Add noise to gradients
                     for p in parameters:
                         p.grad += torch.distributions.normal.Normal(0.0, max_grad * gradient_std).sample().type(torch.cuda.FloatTensor)
 
-            #TODO: find relevant clipping value!
-            torch.nn.utils.clip_grad_norm_(parameters, 10e-4)
+            #TODO: find relevant clipping value! Reddit posts indicate values ~1
+            #More references here:
+            #https://pytorch.org/docs/stable/nn.html?highlight=torch%20nn%20utils%20clip_grad_norm_#torch.nn.utils.clip_grad_norm_
+            #https://github.com/pytorch/examples/blob/master/word_language_model/main.py#L84-L91
+            torch.nn.utils.clip_grad_norm_(parameters, 1)
 
             optimizer.step()
 

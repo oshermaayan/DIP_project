@@ -205,7 +205,7 @@ def torch_to_np(img_var):
 
 
 def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
-             gradient_std, isLRNoised=False, noiseGradients=False, lrChangeRate=100):
+             gradient_std, isLRNoised=False, noiseGradients=False, lrChangeRate=100, clip_gradients=False):
     """Runs optimization loop.
 
     Args:
@@ -264,7 +264,8 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
             #More references here:
             #https://pytorch.org/docs/stable/nn.html?highlight=torch%20nn%20utils%20clip_grad_norm_#torch.nn.utils.clip_grad_norm_
             #https://github.com/pytorch/examples/blob/master/word_language_model/main.py#L84-L91
-            torch.nn.utils.clip_grad_norm_(parameters, 1)
+            if (clip_gradients):
+                torch.nn.utils.clip_grad_norm_(parameters, 1)
 
             optimizer.step()
 

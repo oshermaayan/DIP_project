@@ -84,6 +84,8 @@ parser.add_argument('--weightNoiseStdScale', type=str, help="Should weights-nois
                                                             "be scaled by the max weight in the layer"
                                                             "or by the mean of absolute values. "
                                                             "Values. Values should be \'mean'' or \'max\'", default="mean")
+parser.add_argument('--clipGradients', type=bool, help="Clip gradients", default=False)
+
 
 parameters = parser.parse_args()
 
@@ -284,7 +286,8 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     p = get_params(OPT_OVER, net, net_input)
     optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr, noiseGradients=parameters.noise_grad,
                                                     lr_std = parameters.noise_lr_std
-                                                    ,gradient_std=parameters.noise_grad_std)
+                                                    ,gradient_std=parameters.noise_grad_std,
+                                                    clip_gradients=parameters.clipGradients)
 
     #Save last result
     img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}_final.jpg".format(

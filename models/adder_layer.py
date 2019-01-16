@@ -1,14 +1,15 @@
 import torch.nn as nn
 import torch
 
-class ConstAdder(nn.Module):
+class NoiseAdder(nn.Module):
     '''
     A layer that adds a constant to the features map
     '''
-    def __init__(self, added_const):
-        super(ConstAdder, self).__init__()
-        self.add_value = added_const
+    def __init__(self, std):
+        super(NoiseAdder, self).__init__()
+        self.std = std
 
     def forward(self, x):
-        x = x + self.add_value
+        noise = x.data.new(x.size()).normal_(mean=0,std=self.std)
+        x = x + noise
         return x

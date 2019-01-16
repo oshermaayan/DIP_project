@@ -95,7 +95,7 @@ def skip(
         #Add noise to feature map after second and fourth "blocks" (in the downwwards direction)
         if i in [1,3]:
             if add_reg_noise:
-                model_tmp.add(adder_layer.ConstAdder(reg_noise_val))
+                model_tmp.add(adder_layer.NoiseAdder(reg_noise_val))
 
         input_depth = num_channels_down[i]
         model_tmp = deeper_main

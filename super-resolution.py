@@ -78,7 +78,7 @@ parser.add_argument('--noise_grad_std', type=float, help='STD of gradients noise
 parser.add_argument('--noise_weights', type=bool, help='Should random noise be added to weights', default=False)
 parser.add_argument('--noise_weights_std', type=float, help='STD of weights noise', default=1/100.0)
 parser.add_argument('--simulationName', type=str, help='Simulation name (e.g. weights_init, noise_grad...)', default="defaultDir")
-parser.add_argument('--saveWeights', type=bool, help="Whether the net\'s weights are to be saved", default=True)
+parser.add_argument('--saveWeights', type=bool, help="Whether the net\'s weights are to be saved", default=False)
 parser.add_argument('--addRegNoiseToFeatureMaps', type=bool, help="Add regularization noise to feature maps", default=False)
 parser.add_argument('--weightNoiseStdScale', type=str, help="Should weights-noise's std should"
                                                             "be scaled by the max weight in the layer"
@@ -422,12 +422,12 @@ def main():
 
 
         add_reg_noise_in_net = parameters.addRegNoiseToFeatureMaps
-        net = get_net(input_depth, NET_TYPE, pad,
+        net = get_net(input_depth, NET_TYPE, pad,add_reg_noise=add_reg_noise_in_net,
                       skip_n33d=128,
                       skip_n33u=128,
                       skip_n11=4,
                       num_scales=5,
-                      upsample_mode='bilinear',add_reg_noise=add_reg_noise_in_net).type(dtype)
+                      upsample_mode='bilinear').type(dtype)
 
 
         psnr_values, best_run_psnr = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR,

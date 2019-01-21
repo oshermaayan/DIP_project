@@ -205,7 +205,8 @@ def torch_to_np(img_var):
 
 
 def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
-             gradient_std, isLRNoised=False, noiseGradients=False, lrChangeRate=100, clip_gradients=False):
+             gradient_std, isLRNoised=False, noiseGradients=False, lrChangeRate=100, clip_gradients=False,
+             max_or_mean_grad_scale='mean'):
     """Runs optimization loop.
 
     Args:
@@ -242,8 +243,18 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
             if noiseGradients:
                 if j % (lrChangeRate - 1) == 0:
                     # Use max gradient absoulte size as std
-                    max_grad = 0.0
+
+
+                    #max_grad = 0.0
                     for p in parameters:
+                        if max_or_mean_grad_scale == "mean":
+                            scale_grad = float(torch.mean(torch.abs(p.grad.data)))
+                        else:
+                            scale_grad = torch.max(torch.abs(p.grad.data))
+
+                        # verify scale_weight is not zero/very small number
+                        scale_grad = max(scale_grad, 10e-5)
+                        '''Older code: max gradient in the entire network
                         x = abs(np.max(p.grad.data.float().cpu().numpy()))
                         y = abs(np.min(p.grad.data.float().cpu().numpy()))
                         if x > y:
@@ -253,19 +264,17 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
 
                         if tmp_max_grad > max_grad:
                             max_grad = tmp_max_grad
-
-                    #Verify max_grad isn't zero or a very small number
-                    max_grad = max(max_grad, 10e-5)
+                        '''
                     #Add noise to gradients
                     for p in parameters:
-                        p.grad += torch.distributions.normal.Normal(0.0, max_grad * gradient_std).sample().type(torch.cuda.FloatTensor)
+                        p.grad += torch.distributions.normal.Normal(0.0, scale_grad * gradient_std).sample().type(torch.cuda.FloatTensor)
 
             #TODO: find relevant clipping value! Reddit posts indicate values ~1
             #More references here:
             #https://pytorch.org/docs/stable/nn.html?highlight=torch%20nn%20utils%20clip_grad_norm_#torch.nn.utils.clip_grad_norm_
             #https://github.com/pytorch/examples/blob/master/word_language_model/main.py#L84-L91
             if (clip_gradients):
-                torch.nn.utils.clip_grad_norm_(parameters, 1)
+                torch.nn.utils.clip_grad_norm_(parameters, 10e-3)
 
             optimizer.step()
 

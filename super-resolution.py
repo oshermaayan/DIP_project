@@ -84,7 +84,11 @@ parser.add_argument('--weightNoiseStdScale', type=str, help="Should weights-nois
                                                             "be scaled by the max weight in the layer"
                                                             "or by the mean of absolute values. "
                                                             "Values. Values should be \'mean'' or \'max\'", default="mean")
-parser.add_argument('--clipGradients', type=bool, help="Clip gradients", default=False)
+parser.add_argument('--gradNoiseStdScale', type=str, help="Should gradients-noise's std should"
+                                                            "be scaled by the max weight in the layer"
+                                                            "or by the mean of absolute values. "
+                                                            "Values. Values should be \'mean'' or \'max\'", default="mean")
+parser.add_argument('--clipGradients', type=bool, help="Clip gradients", default=True)
 
 
 parameters = parser.parse_args()
@@ -287,7 +291,8 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     optimize(OPTIMIZER, p, closure, LR, num_iter, isLRNoised=parameters.noise_lr, noiseGradients=parameters.noise_grad,
                                                     lr_std = parameters.noise_lr_std
                                                     ,gradient_std=parameters.noise_grad_std,
-                                                    clip_gradients=parameters.clipGradients)
+                                                    clip_gradients=parameters.clipGradients,
+                                                    max_or_mean_grad_scale=parameters.gradNoiseStdScale)
 
     #Save last result
     img_path = results_dir+"iter_{iter}_CNN_{CNN}_depth{depth}_initMethod_{initMethod}_final.jpg".format(
@@ -473,7 +478,7 @@ Define global variables and run main
 '''
 
 i = 0
-tests_num = 10
+tests_num = 1
 best_result_img = 0
 best_result_net_weights = 0
 max_PSNR_val = 0.0

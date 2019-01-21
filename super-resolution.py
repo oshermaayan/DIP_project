@@ -478,7 +478,7 @@ Define global variables and run main
 '''
 
 i = 0
-tests_num = 1
+tests_num = 5
 best_result_img = 0
 best_result_net_weights = 0
 max_PSNR_val = 0.0

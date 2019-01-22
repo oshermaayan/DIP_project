@@ -234,8 +234,8 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
         # Avoid psnr drops
         if parameters.psnrDropGuard:
             # if i%plot_frequency == 0:
-            # if last_psnr_value < (1-dropThresh)*psnr_HR
-            if psnr_HR - last_psnr_value < -4:
+            if psnr_HR < (1-0.1)*last_psnr_value:
+            #if psnr_HR - last_psnr_value < -4:
                 print('Falling back to previous checkpoint.')
 
                 for new_param, net_param in zip(last_net, net.parameters()):

@@ -2,8 +2,8 @@
 # coding: utf-8
 
 # Code for **super-resolution** (figures $1$ and $5$ from main paper).. Change `factor` to $8$ to reproduce images from fig. $9$ from supmat.
-# 
-# You can play with parameters and see how they affect the result. 
+#
+# You can play with parameters and see how they affect the result.
 
 # # Import libs
 
@@ -88,7 +88,8 @@ parser.add_argument('--gradNoiseStdScale', type=str, help="Should gradients-nois
                                                             "be scaled by the max weight in the layer"
                                                             "or by the mean of absolute values. "
                                                             "Values. Values should be \'mean'' or \'max\'", default="mean")
-parser.add_argument('--clipGradients', type=bool, help="Clip gradients", default=True)
+parser.add_argument('--clipGradients', type=bool, help="Clip gradients", default=False)
+parser.add_argument('--psnrDropGuard', type=bool, help="In case psnr drops - revert to previous network", default=False)
 
 
 parameters = parser.parse_args()
@@ -102,7 +103,7 @@ if not os.path.exists(baseDir):
     os.makedirs(baseDir)
 
 
-imsize = -1 
+imsize = -1
 factor = parameters.factor #4#8
 enforse_div32 = 'CROP' # we usually need the dimensions to be divisible by a power of two (32 in this case)
 PLOT = False
@@ -110,7 +111,7 @@ PSNR_drop_thresh = 4
 plot_frequency = parameters.disp_freq #100
 
 # To produce images from the paper we took *_GT.png images from LapSRN viewer for corresponding factor,
-# e.g. x4/zebra_GT.png for factor=4, and x8/zebra_GT.png for factor=8 
+# e.g. x4/zebra_GT.png for factor=4, and x8/zebra_GT.png for factor=8
 path_to_image = parameters.file_path#'data/sr/zebra_GT.png'#zebra_GT.png'
 
 # TODO : check and improve this function
@@ -168,7 +169,7 @@ def add_noise_to_weights(m, std, mean_or_max="mean"):
 def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg_noise_std, LR, num_iter,
                  KERNEL_TYPE, results_dir):
 
-    global  best_result_img, best_result_net_weights, max_PSNR_val, max_psnr_iter
+    global  best_result_img, best_result_net_weights, max_PSNR_val, max_psnr_iter, last_psnr_value, last_net
     initType = parameters.weight_init#"xavier_normal"
     weight_init_wrapper = lambda m: init_weights(m, initType)
     net.apply(weight_init_wrapper)
@@ -197,11 +198,11 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
 
     # # Define closure and optimize
 
-    # In[ ]:
-
+    last_psnr_value = 0
+    last_net = None
 
     def closure():
-        global i, net_input, max_PSNR_val, best_result_img, best_result_net_weights, max_psnr_iter
+        global i, net_input, max_PSNR_val, best_result_img, best_result_net_weights, max_psnr_iter, last_psnr_value, last_net
         ###start_time = time.time()
         if reg_noise_std > 0:
             ### Add noise to network - the bigger the SR factor, the more noise (higher std) is added!
@@ -229,6 +230,21 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
         psnr_LR = compare_psnr(imgs['LR_np'], torch_to_np(out_LR))
         psnr_HR = compare_psnr(imgs['HR_np'], torch_to_np(out_HR))
         print ('Iteration %06d    PSNR_LR %.3f   PSNR_HR %.3f' % (i, psnr_LR, psnr_HR), '\r', end='')
+
+        # Avoid psnr drops
+        if parameters.psnrDropGuard:
+            # if i%plot_frequency == 0:
+            # if last_psnr_value < (1-dropThresh)*psnr_HR
+            if psnr_HR - last_psnr_value < -4:
+                print('Falling back to previous checkpoint.')
+
+                for new_param, net_param in zip(last_net, net.parameters()):
+                    net_param.detach().copy_(new_param.cuda())
+
+                return total_loss * 0
+            else:
+                last_net = [x.detach().cpu() for x in net.parameters()]
+                last_psnr_value = psnr_HR
 
         # History
         psnr_history.append([psnr_LR, psnr_HR])
@@ -273,6 +289,7 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
             if PLOT:
                 out_HR_np = torch_to_np(out_HR)
                 plot_image_grid([imgs['HR_np'], imgs['bicubic_np'], np.clip(out_HR_np, 0, 1)], factor=13, nrow=3)
+
 
         i += 1
 

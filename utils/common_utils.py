@@ -274,7 +274,7 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
             #https://pytorch.org/docs/stable/nn.html?highlight=torch%20nn%20utils%20clip_grad_norm_#torch.nn.utils.clip_grad_norm_
             #https://github.com/pytorch/examples/blob/master/word_language_model/main.py#L84-L91
             if (clip_gradients):
-                torch.nn.utils.clip_grad_norm_(parameters, 10e-4)
+                torch.nn.utils.clip_grad_norm_(parameters, 10e-5)
 
             optimizer.step()
 

@@ -208,6 +208,9 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
             ### Add noise to network - the bigger the SR factor, the more noise (higher std) is added!
             net_input = net_input_saved + (noise.normal_() * reg_noise_std)
 
+        else:
+            net_input = net_input_saved
+
         # SR image
         out_HR = net(net_input)
 
@@ -242,7 +245,7 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
                 last_iters_hr_psnr = [i for _,i in psnr_history[-check_psnr_freq:]]
                 max_psnr_in_last_iters = max(last_iters_hr_psnr)
             #if psnr_HR < (1-max_drop_thresh)*last_psnr_value:
-            if psnr_HR - max_psnr_in_last_iters < -1:
+            if psnr_HR - max_psnr_in_last_iters < -2:
                 print('Falling back to previous checkpoint.')
                 print("Iteration %06d, Old Value: %4.3f, New Value: %4.3f" % (i, last_psnr_value, psnr_HR))
 

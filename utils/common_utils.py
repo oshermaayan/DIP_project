@@ -233,7 +233,7 @@ def optimize(optimizer_type, parameters, closure, LR, num_iter, lr_std,
 
     elif optimizer_type == 'adam':
         print('Starting optimization with ADAM')
-        optimizer = torch.optim.Adam(parameters, lr=LR)
+        optimizer = torch.optim.Adam(parameters, lr=LR, betas=(0.99,0.999))
 
 
         for j in range(num_iter):

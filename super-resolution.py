@@ -198,9 +198,12 @@ def get_layer_stats(m):
 
 def save_stats_to_dataframe(np_array, file_name):
     df = pd.DataFrame(data=np_array)
-    file_name = baseDir + file_name
-    with open(file_name , 'wb') as df_file:
+    #file_name = baseDir + file_name
+    with open(file_name, 'wb') as df_file:
         pickle.dump(df, df_file)
+
+def save_numpyArray_to_csv(npArray, csv_fileName):
+    np.savetxt(csv_fileName, npArray.asarray(), delimiter=',')
 
 def get_grad_stats(net):
     global i
@@ -541,12 +544,25 @@ def main():
         weights_grad_np = np.array(weights_grad)
 
         #Save stats
-        save_stats_to_dataframe(weights_min, "weights_min")
-        save_stats_to_dataframe(weights_max, "weights_max")
-        save_stats_to_dataframe(weights_mean, "weights_mean")
-        save_stats_to_dataframe(weights_std, "weights_mean")
-        save_stats_to_dataframe(weights_norm, "weights_L2_norm")
-        save_stats_to_dataframe(weights_grad_np, "grads_L2_norm")
+        save_stats_to_dataframe(weights_min, results_dir+"weights_min")
+        save_stats_to_dataframe(weights_max, results_dir+"weights_max")
+        save_stats_to_dataframe(weights_mean, results_dir+"weights_mean")
+        save_stats_to_dataframe(weights_std, results_dir+"weights_std")
+        save_stats_to_dataframe(weights_norm, results_dir+"weights_L2_norm")
+        save_stats_to_dataframe(weights_grad_np, results_dir+"grads_L2_norm")
+
+        #save_numpyArray_to_csv(weights_min, "weights_min.csv")
+        #save_numpyArray_to_csv(weights_max, "weights_max.csv")
+        #save_numpyArray_to_csv(weights_mean, "weights_mean.csv")
+        #save_numpyArray_to_csv(weights_std, "weights_mean.csv")
+        #save_numpyArray_to_csv(weights_norm, "weights_L2_norm.csv")
+        #save_numpyArray_to_csv(weights_grad_np, "grads_L2_norm.csv")
+        np.savetxt(results_dir+"weights_min.csv", weights_min, delimiter=',')
+        np.savetxt(results_dir+"weights_max.csv", weights_max, delimiter=',')
+        np.savetxt(results_dir + "weights_mean.csv", weights_mean, delimiter=',')
+        np.savetxt(results_dir + "weights_std.csv", weights_std, delimiter=',')
+        np.savetxt(results_dir + "weights_L2_norm.csv", weights_norm, delimiter=',')
+        np.savetxt(results_dir + "grads_L2_norm.csv", weights_grad_np, delimiter=',')
 
         print("Completed run #{runNum} out of {totalRunNum}".format(runNum = j +1, totalRunNum=tests_num))
 

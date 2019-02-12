@@ -55,14 +55,18 @@ for graph_name,graph_data in zip(graph_names, graphs_data):
         plt.plot(x_axis,graph_data[[l]])
 
     #Adjust subplots
-    plt.subplots_adjust(hspace = 3)
+    plt.subplots_adjust(hspace = 0.5)
 
     plt.xlabel("Iteration #")
     plt.title(graph_name)
     plt.legend(legend)
-    plt.show()
+    #plt.show()
     #Save plot to file
     plt_name = dir + graph_name + ".jpg"
+    fig = plt.gcf()
+    fig.set_size_inches(18.5, 10.5)
+    fig.savefig(plt_name, dpi=100)
+
     #plt.savefig(plt_name)
 
 

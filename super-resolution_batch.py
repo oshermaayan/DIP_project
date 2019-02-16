@@ -33,11 +33,13 @@ import datetime
 import pickle
 import csv
 
+import pandas as pd
+
 from utils.sr_utils import *
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
-
+batch_size = 3
 
 #TODO: verify the if use_cuda code works
 if use_cuda:
@@ -164,12 +166,62 @@ def add_noise_to_weights(m, std, mean_or_max="mean"):
         m.weight.data.fill_(1.0)
         print(m.weight)
     '''
+
+
+#TODO: if conv_layers_count isn't used - remove it from code
+conv_layers_count = 0
+
+def get_layer_stats(m):
+    '''
+    w.min
+    w.max
+    w.mean
+    w.std
+    |w| = w*w.T
+    |w_grad|
+    '''
+    global i
+    global weights_min, weights_max, weights_mean, weights_std, weights_norm
+    global conv_layer_ind
+    if (isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d)):
+        weights_data = m.weight.data.cpu()
+
+        weights_min[i, conv_layer_ind] = float(torch.min(weights_data))
+        weights_max[i, conv_layer_ind] = float(torch.max(weights_data))
+        weights_mean[i, conv_layer_ind] = float(torch.mean(weights_data))
+        weights_std[i, conv_layer_ind] = float(torch.std(weights_data))
+        weights_norm[i, conv_layer_ind] = float(torch.norm(weights_data))
+
+        conv_layer_ind += 1
+
+
+
+def save_stats_to_dataframe(np_array, file_name):
+    df = pd.DataFrame(data=np_array)
+    #file_name = baseDir + file_name
+    with open(file_name, 'wb') as df_file:
+        pickle.dump(df, df_file)
+
+def save_numpyArray_to_csv(npArray, csv_fileName):
+    np.savetxt(csv_fileName, npArray.asarray(), delimiter=',')
+
+def get_grad_stats(net):
+    global i
+    global weights_grad
+    for p in net.parameters():
+        if p.requires_grad and p.grad is not None:
+            grad_norm = float(torch.norm(p.grad.cpu()))
+            weights_grad[i].append(grad_norm)
+
+    # weights_grad = m.weight.grad.data.cpu()
+    # weights_grad[i, conv_layer_ind] = float(torch.norm(weights_grad))
 # # Load image and baselines
 
 def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg_noise_std, LR, num_iter,
                  KERNEL_TYPE, results_dir):
 
-    global  best_result_img, best_result_net_weights, max_PSNR_val, max_psnr_iter, last_psnr_value, last_net
+    global best_result_img, best_result_net_weights, max_PSNR_val, max_psnr_iter, last_psnr_value, last_net
+    global conv_layer_ind, grad_param_ind
     initType = parameters.weight_init#"xavier_normal"
     weight_init_wrapper = lambda m: init_weights(m, initType)
     net.apply(weight_init_wrapper)
@@ -182,6 +234,7 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     mse = torch.nn.MSELoss().type(dtype)
 
     img_LR_var = np_to_torch(imgs['LR_np']).type(dtype)
+    img_LR_var = img_LR_var.repeat(batch_size,1,1,1) #OSHA was here - rem
     img_LR_var = img_LR_var.to(device)
 
     downsampler = Downsampler(n_planes=3, factor=factor, kernel_type=KERNEL_TYPE, phase=0.5, preserve_size=True).type(dtype)
@@ -196,29 +249,22 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     plt.imshow(filtered_np)
     '''
 
-    # # Define closure and optimize
+    #Define closure and optimize
 
     last_psnr_value = 0
     last_net = None
 
     def closure():
-        batch_size = 16
         global i, net_input, max_PSNR_val, best_result_img, best_result_net_weights, max_psnr_iter, last_psnr_value, last_net
+        global weights_min, weights_max, weights_mean, weights_std, weights_norm, weights_grad
+        global conv_layer_ind, grad_param_ind
         ###start_time = time.time()
-        '''
         if reg_noise_std > 0:
             ### Add noise to network - the bigger the SR factor, the more noise (higher std) is added!
             net_input = net_input_saved + (noise.normal_() * reg_noise_std)
 
         else:
             net_input = net_input_saved
-           
-        '''
-
-        # Create batch!
-        (x, y) = net_input_saved.size()[2:]
-        new_net_input = net_input_saved.repeat(batch_size, 1) + (noise.normal_() * reg_noise_std).repeat(batch_size,1)
-        new_net_input.size = (batch_size, 3, x, y)
 
         # SR image
         out_HR = net(net_input)
@@ -233,8 +279,16 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
         ###if tv_weight > 0:
         ###    total_loss += tv_weight * tv_loss(out_HR)
 
+        #TODO: verify this is the right place to collect stats
+        conv_layer_ind = 0
+        net.apply(get_layer_stats)
+
+
         # Back propagation
         total_loss.backward()
+
+        # TODO: verify this is the right place to collect stats
+        get_grad_stats(net)
 
         # Log
         # imgs['LR_np'] - resized (interpolated), aka corrupted image
@@ -362,11 +416,6 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
     psnr_hr = psnr_history[:, 1]
 
 
-    #print('iteration array size')
-    #print(len(iteration_array))
-    #print('psnr_corrupted size')
-    #print(len(psnr_corrupted))
-
     write_max_psnr_vals(results_dir, psnr_corrupted, psnr_hr)
     save_psnr_pickle_and_csv(results_dir, psnr_hr, parameters)
     plot_psnr(iteration_array, psnr_corrupted, psnr_hr, results_dir)
@@ -381,7 +430,9 @@ def run_one_init(parameters,net,NET_TYPE,net_input, imgs,OPT_OVER,OPTIMIZER, reg
 
 
 def main():
-    global i
+    global i, conv_layers_count
+    global weights_min, weights_max, weights_mean, weights_std, weights_norm, weights_grad
+    global conv_layer_ind, grad_param_ind
     # Starts here
     imgs = load_LR_HR_imgs_sr(path_to_image, imsize, factor, enforse_div32)
 
@@ -481,7 +532,11 @@ def main():
                       num_scales=5,
                       upsample_mode='bilinear').type(dtype)
 
+        #BATCH
+        if net_input.shape[0] < batch_size:
+            net_input = net_input.repeat(batch_size,1,1,1)
 
+        #num_of_conv_layers = conv_layers_count
         psnr_values, best_run_psnr = run_one_init(parameters, net, NET_TYPE, net_input, imgs, OPT_OVER, OPTIMIZER, reg_noise_std, LR,
                     num_iter, KERNEL_TYPE, results_dir)
 
@@ -490,7 +545,42 @@ def main():
         # Reset global variables
         i = 0
 
+        # Convert gradients stats to an ndarray
+        weights_grad_np = np.array(weights_grad)
+
+        #Save stats
+        save_stats_to_dataframe(weights_min, results_dir+"weights_min")
+        save_stats_to_dataframe(weights_max, results_dir+"weights_max")
+        save_stats_to_dataframe(weights_mean, results_dir+"weights_mean")
+        save_stats_to_dataframe(weights_std, results_dir+"weights_std")
+        save_stats_to_dataframe(weights_norm, results_dir+"weights_L2_norm")
+        save_stats_to_dataframe(weights_grad_np, results_dir+"grads_L2_norm")
+
+        #save_numpyArray_to_csv(weights_min, "weights_min.csv")
+        #save_numpyArray_to_csv(weights_max, "weights_max.csv")
+        #save_numpyArray_to_csv(weights_mean, "weights_mean.csv")
+        #save_numpyArray_to_csv(weights_std, "weights_mean.csv")
+        #save_numpyArray_to_csv(weights_norm, "weights_L2_norm.csv")
+        #save_numpyArray_to_csv(weights_grad_np, "grads_L2_norm.csv")
+        np.savetxt(results_dir+"weights_min.csv", weights_min, delimiter=',')
+        np.savetxt(results_dir+"weights_max.csv", weights_max, delimiter=',')
+        np.savetxt(results_dir + "weights_mean.csv", weights_mean, delimiter=',')
+        np.savetxt(results_dir + "weights_std.csv", weights_std, delimiter=',')
+        np.savetxt(results_dir + "weights_L2_norm.csv", weights_norm, delimiter=',')
+        np.savetxt(results_dir + "grads_L2_norm.csv", weights_grad_np, delimiter=',')
+
         print("Completed run #{runNum} out of {totalRunNum}".format(runNum = j +1, totalRunNum=tests_num))
+
+        conv_layers_num = 26
+        weights_min = np.zeros((parameters.iter_num, conv_layers_num))
+        weights_max = np.zeros((parameters.iter_num, conv_layers_num))
+        weights_mean = np.zeros((parameters.iter_num, conv_layers_num))
+        weights_std = np.zeros((parameters.iter_num, conv_layers_num))
+        weights_norm = np.zeros((parameters.iter_num, conv_layers_num))
+        weights_grad = [[] for x in range(parameters.iter_num)]#np.zeros((parameters.iter_num, 113))#np.zeros((parameters.iter_num, conv_layers_num))
+        conv_layer_ind = 0
+        grad_param_ind = 0
+
 
     '''
     endTime = time.time()
@@ -522,6 +612,17 @@ Define global variables and run main
 '''
 
 i = 0
+
+conv_layers_num = 26
+weights_min = np.zeros((parameters.iter_num, conv_layers_num))
+weights_max = np.zeros((parameters.iter_num, conv_layers_num))
+weights_mean = np.zeros((parameters.iter_num, conv_layers_num))
+weights_std = np.zeros((parameters.iter_num, conv_layers_num))
+weights_norm = np.zeros((parameters.iter_num, conv_layers_num))
+weights_grad = [[] for x in range(parameters.iter_num)] #np.zeros((parameters.iter_num, 113))
+conv_layer_ind = 0
+grad_param_ind = 0
+
 tests_num = 3
 best_result_img = 0
 best_result_net_weights = 0

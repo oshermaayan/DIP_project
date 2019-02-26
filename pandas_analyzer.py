@@ -35,13 +35,44 @@ graph_names = ["Minimal weights values", "Maximal weights values", "Weights aver
 graphs_data = [weights_min, weights_max, weights_mean, weights_std, weights_norm]
 
 legend = []
-layers_indices = [7, 16, 24]#[i for i in range(26)]#[7,24]#, 16, 24] #layers to show statistics of
+layers_indices = [7]#, 16, 24]#[i for i in range(26)]#[7,24]#, 16, 24] #layers to show statistics of
 for l in layers_indices:
     legend.append("Layer {layer_num}".format(layer_num=str(l+1)))
 
 x_axis = [i for i in range(iterations_num)]
 
 
+plt.subplot(311)
+plt.plot(x_axis,psnr_vals)
+plt.xlabel("# Iterations")
+plt.ylabel("PSNR (dB)")
+plt.title("PSNR w.r.t iterations")
+
+plt.subplot(312)
+for l in layers_indices:
+        plt.plot(x_axis,weights_std[[l]])
+        #plt.plot(x_axis, weights_mean[[l]])
+
+plt.xlabel("Iteration #")
+plt.title("Weights Standard deviation")
+plt.legend(legend)
+
+plt.subplot(313)
+for l in layers_indices:
+    plt.plot(x_axis, weights_norm[[l]])
+
+plt.subplots_adjust(hspace = 0.5)
+plt.xlabel("Iteration #")
+plt.title("Weights L2 norm")
+plt.legend(legend)
+#plt.show()
+#Save plot to file
+plt_name = dir + "std_norm" + ".jpg"
+fig = plt.gcf()
+fig.set_size_inches(18.5, 10.5)
+fig.savefig(plt_name, dpi=100)
+
+'''
 for graph_name,graph_data in zip(graph_names, graphs_data):
     plt.subplot(211)
     plt.plot(x_axis,psnr_vals)
@@ -74,5 +105,6 @@ for graph_name,graph_data in zip(graph_names, graphs_data):
     #                            graph_data[[7]], graph_data[[16]], graph_data[[24]]], dir, graph_name, legend)
     plt.close()
 
+'''
 print("DOne")
 
